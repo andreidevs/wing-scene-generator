@@ -1,7 +1,6 @@
 import type { BaselineReport } from "./baseline";
-import { BUS_LAYOUT, ROLE_LABELS } from "./presets";
 import type { Scene } from "./scene";
-import { describe, usedRoles, type DiffSummary } from "./wing";
+import { describe, type DiffSummary } from "./wing";
 
 export function buildReport(opts: {
   baselineName: string;
@@ -12,14 +11,15 @@ export function buildReport(opts: {
   generatedAt: Date;
 }): string {
   const { baselineName, baseline, scene, summary, conn, generatedAt } = opts;
-  const roles = usedRoles(scene);
   const L: string[] = [];
   L.push("# WING Scene Generator Report", "");
   L.push(`- Baseline: ${baselineName}`);
   L.push(`- Generated: ${generatedAt.toISOString().slice(0, 16).replace("T", " ")}`);
   L.push(`- Format: ${baseline.format ?? "?"}, ${baseline.creator ?? "?"} ${baseline.firmware ?? "?"}`);
   L.push(`- Channels: ${scene.channels.length}`);
-  L.push(`- Buses: ${roles.map((r) => `Bus ${BUS_LAYOUT[r].bus} ${BUS_LAYOUT[r].name}`).join(", ") || "—"}`);
+  L.push(`- Buses: ${scene.buses.map((b) => `Bus ${b.bus} ${b.name} (${b.mode})`).join(", ") || "—"}`);
+  if (scene.mains.length) L.push(`- Mains: ${scene.mains.map((m) => `Main ${m.main} ${m.name}`).join(", ")}`);
+  if (scene.matrices.length) L.push(`- Matrix: ${scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}`);
   L.push("");
   if (scene.text) L.push("## Запрос", "", `> ${scene.text}`, "");
 
@@ -41,15 +41,15 @@ export function buildReport(opts: {
   L.push("");
 
   L.push("## Сделать вручную в WING EDIT / на пульте", "");
-  for (const r of roles) {
-    const b = BUS_LAYOUT[r];
-    const routes = baseline.routes[r];
+  for (const b of scene.buses) {
     if (b.toMain) {
-      L.push(`- Bus ${b.bus} ${b.name} (${ROLE_LABELS[r]}): возврат идёт в Main 1, отдельный выход не нужен. Проверь реверб FX${b.fx?.slot}.`);
+      L.push(`- Bus ${b.bus} ${b.name}: идёт в Main 1, отдельный выход не нужен.${b.fx ? ` Проверь FX${b.fx.slot}.` : ""}`);
       continue;
     }
-    L.push(`- Bus ${b.bus} ${b.name} (${ROLE_LABELS[r]}): ${routes.length ? `сейчас выведена на ${routes.join(", ")}, проверь` : "не выведена, назначь выход"}${r === "stream" ? " (USB для стрима)" : ""}`);
+    const routes = baseline.routes[b.bus] ?? [];
+    L.push(`- Bus ${b.bus} ${b.name}: ${routes.length ? `сейчас выведена на ${routes.join(", ")}, проверь` : "не выведена, назначь выход"}${b.kind === "stream" ? " (USB для стрима)" : ""}`);
   }
+  for (const m of scene.matrices) L.push(`- MX${m.mtx} ${m.name}: назначь выход матрицы (USB / стрим-выход).`);
   L.push("- Фейдеры каналов, шин и посылы стоят на заданных уровнях (по умолчанию −18 dB). Main не тронут, подними на саундчеке.");
   L.push("- Все каналы замьючены (кроме явно открытых в запросе). Снимай mute на саундчеке.");
   if (baseline.warnings.length) {

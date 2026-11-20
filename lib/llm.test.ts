@@ -78,3 +78,52 @@ test("vote: OpenRouter down → the parser's scene is returned instead of an err
   assert.equal(r.parserOnly, true);
   assert.equal(r.intent.sources.length, parseRequest(EXAMPLE_TEXT).intent.sources.length);
 });
+
+test("repair: «матрица стрим» → matrix; numbered vocal mixes get their own mic, not all vocals", async () => {
+  const { repair } = await import("./llm");
+  const { IntentSchema } = await import("./intent");
+  const raw = IntentSchema.parse({
+    channels: [{ kind: "vocal", label: "Mic{n}", count: 3 }, { kind: "bass" }],
+    mixes: [{ name: "InEarVocal2", own: ["vocal"] }, { name: "InEarBass", own: ["bass"] }],
+    monitors: [], fx: [], stream: true, streamVia: "bus",
+  });
+  const r = repair("Mic1 - 3, бас … Матрица стрим", raw);
+  assert.equal(r.streamVia, "matrix");
+  assert.deepEqual(r.mixes.map((m) => m.own), [["Mic2"], ["bass"]]);
+  assert.equal(repair("стрим на ютуб", raw).streamVia, "bus", "plain stream stays a bus");
+});
+
+test("repair: empty mixes take all channels; missing spare mixes are added by name pattern", async () => {
+  const { repair } = await import("./llm");
+  const { IntentSchema } = await import("./intent");
+  const raw = IntentSchema.parse({
+    sources: [{ kind: "vocal", count: 1 }],
+    mixes: [{ name: "InEarDrums", own: ["sampler"] }, { name: "InEarBass", contains: [] }],
+    monitors: [], fx: [], stream: false,
+  });
+  const r = repair("Будет 4 InEar миксов", raw);
+  assert.deepEqual(r.mixes.map((m) => [m.name, m.contains]), [
+    ["InEarDrums", ["all"]], ["InEarBass", ["all"]], ["InEar3", ["all"]], ["InEar4", ["all"]],
+  ]);
+});
+
+test("repair: channel names kept only when spelled in the request", async () => {
+  const { repair } = await import("./llm");
+  const { IntentSchema } = await import("./intent");
+  const raw = IntentSchema.parse({
+    channels: [
+      { kind: "vocal", label: "Mic{n}", count: 2 }, { kind: "speech", label: "Speaker" },
+      { kind: "ac_guitar" }, { kind: "ac_guitar", label: "Аккустика 2" }, { kind: "keys", label: "Acoustic2" },
+    ],
+    monitors: [], fx: [], stream: false,
+  });
+  const r = repair("Mic1 - 2 и Speaker, Аккустика Аккустика 2, клавиши", raw);
+  assert.deepEqual(r.channels.map((c) => c.label), ["Mic{n}", "Speaker", undefined, undefined, undefined]);
+});
+
+test("vote: a 2–2 tie goes to the parser's scene", async () => {
+  const slip = JSON.stringify({ ...EXAMPLE_INTENT, sources: [{ kind: "vocal", count: 1 }] });
+  const { impl } = fakeFetch([slip, slip, PARSED]);
+  const r = await voteIntent(EXAMPLE_TEXT, "test-key", { fetchImpl: impl });
+  assert.deepEqual(r.intent.sources, parseRequest(EXAMPLE_TEXT).intent.sources);
+});

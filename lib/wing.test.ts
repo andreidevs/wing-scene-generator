@@ -16,7 +16,7 @@ test("clean baseline is valid", () => {
   assert.deepEqual(r.errors, []);
   assert.equal(r.valid, true);
   assert.equal(r.firmware, "3.3.1");
-  assert.deepEqual(r.routes.mon_vocals, ["LCL 1"], "clean base routes Bus 1 L to local out 1");
+  assert.deepEqual(r.routes[1], ["LCL 1"], "clean base routes Bus 1 L to local out 1");
 });
 
 test("build is deterministic and leaves the baseline text untouched", () => {

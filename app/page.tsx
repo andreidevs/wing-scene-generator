@@ -14,11 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { validateBaseline, type BaselineReport } from "@/lib/baseline";
 import { SOURCE_KINDS, type Intent, type SourceKind } from "@/lib/intent";
 import { parseRequest } from "@/lib/parse";
-import { BUS_LAYOUT, BUS_ROLES, COLORS, DCA_GROUPS, ROLE_LABELS, type BusRole, type ColorId, type FxRole, type MonitorRole } from "@/lib/presets";
+import { COLORS, DCA_GROUPS, type ColorId } from "@/lib/presets";
 import { buildReport } from "@/lib/report";
-import { applyKind, editField, expand, newChannel, SceneSchema, type ChannelDraft, type EditableField, type Scene } from "@/lib/scene";
+import { applyKind, editField, expand, newChannel, SceneSchema, sendLevelOf, type BusDef, type ChannelDraft, type EditableField, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
-import { apply, compile, describe, diff, summarize, usedRoles, type BaselineSnap, type DiffSummary } from "@/lib/wing";
+import { apply, compile, describe, diff, summarize, type BaselineSnap, type DiffSummary } from "@/lib/wing";
 
 const KIND_LABELS: Record<SourceKind, string> = {
   kick: "Kick", snare: "Snare", hihat: "Hi-hat", tom: "Tom", overhead: "Overhead", perc: "Percussion", sampler: "Sampler / SPD",
@@ -56,18 +56,22 @@ const COLOR_SWATCH: Record<ColorId, string> = {
   yellow: "bg-yellow-400", orange: "bg-orange-500", red: "bg-red-600", coral: "bg-orange-300", pink: "bg-pink-400", mauve: "bg-fuchsia-500",
 };
 const NO_DCA = "none";
+const BUS_KIND_LABEL: Record<BusDef["kind"], string> = { monitor: "монитор", fx: "эффект", group: "группа", stream: "стрим" };
 
 
 const toggle = <T,>(list: T[], value: T, on: boolean) =>
   on ? (list.includes(value) ? list : [...list, value]) : list.filter((v) => v !== value);
 
-const sendOn = (c: ChannelDraft, role: BusRole) =>
-  role === "stream" ? c.stream : (c.monitorSends as string[]).includes(role) || (c.fxSends as string[]).includes(role);
+const sendOn = (c: ChannelDraft, b: BusDef) =>
+  b.kind === "stream" ? c.stream : b.kind === "group" ? c.groups.includes(b.id) : b.kind === "fx" ? c.fxSends.includes(b.id) : c.monitorSends.includes(b.id);
 
-function setSend(c: ChannelDraft, role: BusRole, on: boolean): ChannelDraft {
-  if (role === "stream") return editField(c, "stream", on);
-  if (role.startsWith("mon_")) return editField(c, "monitorSends", toggle(c.monitorSends, role as MonitorRole, on));
-  return editField(c, "fxSends", toggle(c.fxSends, role as FxRole, on));
+function setSend(c: ChannelDraft, b: BusDef, on: boolean): ChannelDraft {
+  if (b.kind === "stream") return editField(c, "stream", on);
+  if (b.kind === "fx") return editField(c, "fxSends", toggle(c.fxSends, b.id, on));
+  if (b.kind === "monitor") return editField(c, "monitorSends", toggle(c.monitorSends, b.id, on));
+  // Group: joining sends GRP to the group and takes the channel off Main 1; leaving the last group puts it back.
+  const groups = toggle(c.groups, b.id, on);
+  return editField(editField(c, "groups", groups), "toMain", groups.length === 0);
 }
 
 function download(name: string, content: string, type = "application/json") {
@@ -192,17 +196,8 @@ export default function Home() {
 
   const edited = (c: ChannelDraft, f: EditableField) => c.edited.includes(f) && "ring-2 ring-amber-400/70";
   const stale = build !== null && build.scene !== scene;
-  // Send columns: only the buses this scene uses (requested mixes/FX/stream or any channel send).
-  const sendCols: { role: BusRole; label: string }[] = scene
-    ? BUS_ROLES.filter(
-        (r) =>
-          scene.mixes.monitors.some((m) => m.role === r) || (scene.mixes.fx as string[]).includes(r) ||
-          (r === "stream" && scene.mixes.stream) || usedRoles(scene).includes(r),
-      ).map((role) => ({
-        role,
-        label: scene.mixes.monitors.some((m) => m.role === role && m.iem) ? BUS_LAYOUT[role].name.replace(/^MON/, "IEM") : BUS_LAYOUT[role].name,
-      }))
-    : [];
+  // Send columns: every bus the scene creates (in-ear/monitor mixes, groups, FX, stream), in bus order.
+  const sendCols: BusDef[] = scene?.buses ?? [];
   const outName = baseline ? `${baseline.name.replace(/\.snap$/i, "")}_generated_${new Date().toISOString().slice(0, 10)}` : "scene";
 
   return (
@@ -348,7 +343,12 @@ export default function Home() {
                   <TableHead className="text-center">Gate</TableHead>
                   <TableHead className="text-center">Mute</TableHead>
                   <TableHead>Fader</TableHead>
-                  {sendCols.map((s) => <TableHead key={s.role} title={ROLE_LABELS[s.role]}>{s.label}</TableHead>)}
+                  <TableHead title="Канал идёт в Main 1 напрямую (участники групп идут через группу)">Main 1</TableHead>
+                  {sendCols.map((b) => (
+                    <TableHead key={b.id} title={`Bus ${b.bus} · ${BUS_KIND_LABEL[b.kind]}${b.iem ? " · in-ear" : ""} · ${b.mode}`}>
+                      {b.name}
+                    </TableHead>
+                  ))}
                   <TableHead>DCA</TableHead>
                   <TableHead />
                 </TableRow>
@@ -402,21 +402,26 @@ export default function Home() {
                     <TableCell>
                       <NumberCell value={c.fader} min={-144} max={10} step={0.5} className={edited(c, "fader")} onCommit={(n) => update(c.ch, (d) => editField(d, "fader", n))} />
                     </TableCell>
-                    {sendCols.map((s) => {
-                      const on = sendOn(c, s.role);
+                    <TableCell className="text-center">
+                      <Checkbox checked={c.toMain} className={cn(edited(c, "toMain"))} onCheckedChange={(on) => update(c.ch, (d) => editField(d, "toMain", on))} />
+                    </TableCell>
+                    {sendCols.map((b) => {
+                      const on = sendOn(c, b);
                       return (
-                        <TableCell key={s.role}>
+                        <TableCell key={b.id}>
                           <div className="flex items-center gap-1.5">
-                            <Checkbox checked={on} onCheckedChange={(v) => update(c.ch, (d) => setSend(d, s.role, v))} />
-                            <NumberCell
-                              value={c.sendLevel[s.role]}
-                              min={-144}
-                              max={10}
-                              step={0.5}
-                              disabled={!on}
-                              className={cn("w-16", edited(c, "sendLevel"))}
-                              onCommit={(n) => update(c.ch, (d) => editField(d, "sendLevel", { ...d.sendLevel, [s.role]: n }))}
-                            />
+                            <Checkbox checked={on} onCheckedChange={(v) => update(c.ch, (d) => setSend(d, b, v))} />
+                            {b.kind !== "group" && (
+                              <NumberCell
+                                value={sendLevelOf(c, b.id)}
+                                min={-144}
+                                max={10}
+                                step={0.5}
+                                disabled={!on}
+                                className={cn("w-16", edited(c, "sendLevel"))}
+                                onCommit={(n) => update(c.ch, (d) => editField(d, "sendLevel", { ...d.sendLevel, [b.id]: n }))}
+                              />
+                            )}
                           </div>
                         </TableCell>
                       );
@@ -457,7 +462,9 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Сборка</CardTitle>
             <CardDescription>
-              Шины: {sendCols.map((s) => `Bus ${BUS_LAYOUT[s.role].bus} ${s.label}${BUS_LAYOUT[s.role].fx ? ` (FX${BUS_LAYOUT[s.role].fx!.slot})` : ""}`).join(" · ") || "—"}.
+              Шины: {sendCols.map((b) => `Bus ${b.bus} ${b.name}${b.fx ? ` (FX${b.fx.slot})` : ""}`).join(" · ") || "—"}.
+              {scene.mains.length > 0 && <> Main: {scene.mains.map((m) => `${m.main} ${m.name}`).join(", ")}.</>}
+              {scene.matrices.length > 0 && <> Матрицы: {scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}.</>}
               {" "}Страницы: стандартные
               {scene.pages.map((pg, k) => ` · USER ${k + 1}: ${pg.sources.join(", ")}${pg.buses ? " + шины" : ""}${pg.dca ? " + DCA" : ""}`).join("")}.
               {" "}Все каналы по умолчанию в mute.
@@ -516,12 +523,10 @@ function BaselineStatus({ b }: { b: Baseline }) {
       {r.missingPaths.length > 0 && <p className="text-muted-foreground font-mono text-xs">{r.missingPaths.slice(0, 5).join(", ")}…</p>}
       {r.valid && (
         <ul className="text-muted-foreground space-y-0.5">
-          {(Object.keys(BUS_LAYOUT) as BusRole[]).map((role) => (
-            <li key={role}>
-              Bus {BUS_LAYOUT[role].bus} · {ROLE_LABELS[role]}:{" "}
-              {BUS_LAYOUT[role].toMain ? "→ Main 1" : r.routes[role].length ? `выход ${r.routes[role].join(", ")}` : "выход назначить вручную"}
-            </li>
-          ))}
+          <li>
+            Выходы шин в baseline:{" "}
+            {Object.entries(r.routes).filter(([, o]) => o.length).map(([n, o]) => `Bus ${n} → ${o.join(", ")}`).join(" · ") || "не назначены"}
+          </li>
         </ul>
       )}
       {r.warnings.map((w) => <p key={w} className="text-amber-700">⚠ {w}</p>)}

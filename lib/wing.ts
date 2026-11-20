@@ -3,10 +3,10 @@ import { FX_TEMPLATES } from "./fx-templates";
 import { layerPlan, pageStrips, type Layers } from "./layers";
 import { cloneNode, fromValue, getNode, parseOrdered, replaceNode, serialize, toValue } from "./ordered-json";
 import {
-  BUS_LAYOUT, CHANNEL_PRESETS, COLORS, DCA_COLORS, DCA_GROUPS, DCA_ICONS, IEM_ICON, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
-  type BusRole, type ChannelPreset, type ColorId,
+  CHANNEL_PRESETS, COLORS, DCA_COLORS, DCA_GROUPS, DCA_ICONS, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
+  type ChannelPreset, type ColorId,
 } from "./presets";
-import type { Scene } from "./scene";
+import { sendLevelOf, type Scene } from "./scene";
 
 // WING palette, indexes 1..12 (WING Remote Protocols, Appendix "WING Colors"):
 // 1 gray blue, 2 medium blue, 3 dark blue, 4 turquoise, 5 green, 6 olive green,
@@ -23,11 +23,12 @@ const PH: Record<string, string> = {
   dca: "([1-9]|1[0-6])",
   main: "[1-4]",
   fx8: "[1-8]", // reverbs are only allowed in FX1..FX8
+  mx: "[1-8]",
   sec: "(L|C|R|CMPCT|RCK|EXT|VRT|WEDIT)",
   pg: "\\d{1,2}",
   slot: "\\d{1,2}",
 };
-const COUNTS: Record<string, number> = { ch: 40, bus: 16, dca: 16, main: 4, fx8: 8 };
+const COUNTS: Record<string, number> = { ch: 40, bus: 16, dca: 16, main: 4, fx8: 8, mx: 8 };
 
 const col = z.number().int().min(1).max(18);
 const db = z.number().min(-144).max(10);
@@ -65,6 +66,14 @@ const RULES: { tpl: string; schema: z.ZodType; kind: Kind }[] = [
   { tpl: "bus/{bus}/preins/on", schema: z.boolean(), kind: "FX" },
   { tpl: "bus/{bus}/preins/ins", schema: z.string().regex(/^(NONE|FX([1-9]|1[0-6]))$/), kind: "FX" },
   { tpl: "fx/{fx8}", schema: z.unknown().refine((v) => fxTemplates.includes(JSON.stringify(v)), "не известный шаблон FX"), kind: "FX" },
+  // Mains and matrices: names only, plus the Main → Matrix send that feeds a stream matrix.
+  { tpl: "main/{main}/name", schema: z.string().min(1).max(16), kind: "Шины" },
+  { tpl: "main/{main}/send/MX{mx}/on", schema: z.boolean(), kind: "Шины" },
+  { tpl: "main/{main}/send/MX{mx}/lvl", schema: db, kind: "Шины" },
+  { tpl: "mtx/{mx}/name", schema: z.string().min(1).max(16), kind: "Шины" },
+  { tpl: "mtx/{mx}/col", schema: col, kind: "Шины" },
+  { tpl: "mtx/{mx}/icon", schema: icon, kind: "Иконки" },
+  { tpl: "mtx/{mx}/fdr", schema: db, kind: "Фейдеры" },
   { tpl: "dca/{dca}/name", schema: z.string().min(1).max(8), kind: "DCA" },
   { tpl: "dca/{dca}/col", schema: col, kind: "DCA" },
   { tpl: "dca/{dca}/icon", schema: icon, kind: "Иконки" },
@@ -96,16 +105,7 @@ export function allowedPaths(): string[] {
 
 export type Patch = { op: "set"; path: string; value: string | number | boolean | object };
 
-export function usedRoles(scene: Scene): BusRole[] {
-  const roles = new Set<BusRole>();
-  for (const c of scene.channels) {
-    c.monitorSends.forEach((r) => roles.add(r));
-    c.fxSends.forEach((r) => roles.add(r));
-    if (c.stream) roles.add("stream");
-  }
-  return Object.keys(BUS_LAYOUT).filter((r) => roles.has(r as BusRole)) as BusRole[];
-}
-
+// Role ids among the scene's buses (for callers that think in roles: reports, the baseline validator).
 const dcaNumber = (g: string) => DCA_GROUPS.indexOf(g as (typeof DCA_GROUPS)[number]) + 1;
 
 // Replace DCA tags (#D…), keep everything else (mute groups #M…, user tags).
@@ -123,18 +123,14 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   const ae = base.ae_data;
   const p: Patch[] = [];
   const set = (path: string, value: Patch["value"]) => p.push({ op: "set", path, value });
-  const roles = usedRoles(scene);
+  const buses = scene.buses;
 
-  const iem = new Set(scene.mixes.monitors.filter((m) => m.iem).map((m) => m.role as BusRole));
-  for (const role of roles) {
-    const b = BUS_LAYOUT[role];
-    const ears = iem.has(role);
-    set(`bus/${b.bus}/name`, ears ? b.name.replace(/^MON/, "IEM") : b.name);
+  for (const b of buses) {
+    set(`bus/${b.bus}/name`, b.name);
     set(`bus/${b.bus}/col`, WING_COLOR[b.color]);
-    const busIcon = ears ? IEM_ICON : b.icon;
-    if (busIcon !== undefined) set(`bus/${b.bus}/icon`, busIcon);
-    set(`bus/${b.bus}/busmono`, ears ? false : b.mono); // in-ear mixes are stereo
-    set(`bus/${b.bus}/fdr`, DEFAULT_LEVEL_DB);
+    if (b.icon !== undefined) set(`bus/${b.bus}/icon`, b.icon);
+    set(`bus/${b.bus}/busmono`, b.mono);
+    set(`bus/${b.bus}/fdr`, b.fader);
     set(`bus/${b.bus}/main/1/on`, b.toMain);
     if (b.toMain) set(`bus/${b.bus}/main/1/lvl`, 0);
     if (b.fx) {
@@ -145,11 +141,23 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   }
 
   // In-ear mixes get the FX returns (reverb/delay), at the default level.
-  for (const fxRole of roles.filter((r) => BUS_LAYOUT[r].fx)) {
-    for (const mon of roles.filter((r) => iem.has(r))) {
-      set(`bus/${BUS_LAYOUT[fxRole].bus}/send/${BUS_LAYOUT[mon].bus}/on`, true);
-      set(`bus/${BUS_LAYOUT[fxRole].bus}/send/${BUS_LAYOUT[mon].bus}/lvl`, DEFAULT_LEVEL_DB);
+  for (const fxb of buses.filter((b) => b.fx)) {
+    for (const mon of buses.filter((b) => b.kind === "monitor" && b.iem)) {
+      set(`bus/${fxb.bus}/send/${mon.bus}/on`, true);
+      set(`bus/${fxb.bus}/send/${mon.bus}/lvl`, DEFAULT_LEVEL_DB);
     }
+  }
+
+  // Main names ("Tops", "Subs"); channels are assigned to Main 1 only (Main 2+ is fed by hand).
+  for (const m of scene.mains) set(`main/${m.main}/name`, m.name);
+  // Matrices fed from a main ("Stream" ← Main 1).
+  for (const mx of scene.matrices) {
+    set(`mtx/${mx.mtx}/name`, mx.name);
+    set(`mtx/${mx.mtx}/col`, WING_COLOR.grayblue);
+    set(`mtx/${mx.mtx}/icon`, 605);
+    set(`mtx/${mx.mtx}/fdr`, 0);
+    set(`main/${mx.from}/send/MX${mx.mtx}/on`, true);
+    set(`main/${mx.from}/send/MX${mx.mtx}/lvl`, 0);
   }
 
   const groups = new Set<string>();
@@ -162,19 +170,19 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
     const preset: ChannelPreset = CHANNEL_PRESETS[c.kind];
     const icon = c.kind === "tom" ? TOM_ICONS[Math.min(tomIndex++, TOM_ICONS.length - 1)] : preset.icon;
     if (icon !== undefined) set(`${ch}/icon`, icon);
-    if (preset.main === false) set(`${ch}/main/1/on`, false); // click / talkback stay out of FOH
+    set(`${ch}/main/1/on`, c.toMain); // off for click/talkback/ambience and for channels that go through a group
     set(`${ch}/flt/lc`, true);
     set(`${ch}/flt/lcf`, c.hpf);
     set(`${ch}/gate/on`, c.gate);
     set(`${ch}/dyn/on`, c.comp);
     set(`${ch}/mute`, c.mute);
     set(`${ch}/fdr`, c.fader);
-    for (const role of roles) {
-      const b = BUS_LAYOUT[role];
-      const on = role === "stream" ? c.stream : (c.monitorSends as string[]).includes(role) || (c.fxSends as string[]).includes(role);
+    for (const b of buses) {
+      const on =
+        b.kind === "stream" ? c.stream : b.kind === "group" ? c.groups.includes(b.id) : b.kind === "fx" ? c.fxSends.includes(b.id) : c.monitorSends.includes(b.id);
       set(`${ch}/send/${b.bus}/on`, on);
       if (on) {
-        set(`${ch}/send/${b.bus}/lvl`, c.sendLevel[role]);
+        set(`${ch}/send/${b.bus}/lvl`, b.kind === "group" ? 0 : sendLevelOf(c, b.id));
         set(`${ch}/send/${b.bus}/mode`, b.mode);
       }
     }
@@ -197,9 +205,9 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
 
   const layers = base.ce_data?.layer;
   if (layers) {
-    const buses = roles.map((r) => BUS_LAYOUT[r].bus);
+    const busNums = buses.map((b) => b.bus);
     const dcas = DCA_GROUPS.filter((g) => groups.has(g)).map(dcaNumber);
-    const user = [0, 1].map((k) => scene.pages[k] && pageStrips(scene.pages[k], scene.channels, buses, dcas));
+    const user = [0, 1].map((k) => scene.pages[k] && pageStrips(scene.pages[k], scene.channels, busNums, dcas));
     for (const { path, value } of layerPlan(layers, user)) set(path, value);
   }
   return p;
@@ -252,7 +260,8 @@ const GUARDS: { label: string; re: RegExp }[] = [
   { label: "Routing", re: /^ae_data\/(io\/out\/|ch\/\d+\/in\/conn\/)/ },
   { label: "Gain", re: /^ae_data\/(io\/in\/[^/]+\/\d+\/g$|ch\/\d+\/in\/set\/trim$)/ },
   { label: "Phantom", re: /^ae_data\/io\/in\/[^/]+\/\d+\/vph$/ },
-  { label: "Main bus", re: /^ae_data\/main\// },
+  // Main processing/fader/mute/output; names and the Main → Matrix send are allowlisted on purpose.
+  { label: "Main bus", re: /^ae_data\/main\/\d+\/(?!name$|send\/MX\d\/(?:on|lvl)$)/ },
   { label: "I/O card", re: /^ae_data\/cards\// },
   { label: "Console config", re: /^(ce_data\/(?!layer\/)|ae_data\/cfg\/|[^/]+$)/ },
 ];
@@ -286,12 +295,12 @@ export function describe(e: DiffEntry): string {
   const v = (x: unknown) => (x === undefined ? "—" : typeof x === "boolean" ? (x ? "on" : "off") : JSON.stringify(x));
   const lay = /^ce_data\/layer\/(\w+)\/(\d+)\/(\d+)\/(type|i)$/.exec(p);
   if (lay) return `Page ${lay[1]}/${lay[2]} slot ${lay[3]} ${lay[4]}: ${v(e.before)} → ${v(e.after)}`;
-  const m = /^(ch|bus|dca|fx)\/(\d+)\/?(.*)$/.exec(p);
+  const m = /^(ch|bus|dca|fx|main|mtx)\/(\d+)\/?(.*)$/.exec(p);
   if (!m) return `${p}: ${v(e.before)} → ${v(e.after)}`;
   const [, sec, n, rest] = m;
-  const who = { ch: "CH", bus: "Bus", dca: "DCA", fx: "FX" }[sec] + " " + n;
-  const send = /^send\/(\d+)\/(on|lvl|mode)$/.exec(rest);
-  if (send) return `${who} → Bus ${send[1]} ${send[2]}: ${v(e.before)} → ${v(e.after)}`;
+  const who = { ch: "CH", bus: "Bus", dca: "DCA", fx: "FX", main: "Main", mtx: "MTX" }[sec] + " " + n;
+  const send = /^send\/(MX)?(\d+)\/(on|lvl|mode)$/.exec(rest);
+  if (send) return `${who} → ${send[1] ? "MTX" : "Bus"} ${send[2]} ${send[3]}: ${v(e.before)} → ${v(e.after)}`;
   const label: Record<string, string> = { clink: "name/color from source", name: "name", col: "color", icon: "icon", "flt/lc": "HPF", "flt/lcf": "HPF Hz", "gate/on": "gate", "dyn/on": "comp", mute: "mute", fdr: "fader dB", tags: "tags", busmono: "mono", "preins/on": "insert", "preins/ins": "insert slot", "main/1/on": "→ Main 1", "main/1/lvl": "→ Main 1 dB" };
   return `${who} ${label[rest] ?? rest}: ${v(e.before)} → ${v(e.after)}`;
 }

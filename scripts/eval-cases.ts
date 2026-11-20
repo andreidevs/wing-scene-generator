@@ -330,3 +330,59 @@ export const CASES_HOLDOUT: EvalCase[] = [
     },
   },
 ];
+
+// Detailed layout requests (named channels, reserved gaps, named in-ear mixes, groups, mains, matrix).
+// Beyond the rule parser; measured for the LLM only (npm run eval -- --advanced …).
+export const USER_TEST_TEXT = `Первые 8 каналов резервируем под микрофоны будут называться Mic1 - 7 и Speaker
+Далее Бас Барабаны (стерео электронные) Аккустика Аккустика 2 Клавиши (стерео) Электрогитара (стерео)
+далее оставим место 2 канала
+и талкбэк
+Будет 2 Main первый это Топы второй это Сабы Main2 в него чисто посылами все будет добавляться по умолчанию все каналы идут только в 1 Main
+Далее будет 10 InEar миксов основных пре фейдер, будут называтся для каждого инструмента InEarDrums InEarBass InEarAccustic InEarPiano InEarElectric и 3 вокальных InEarVocal1 - 3
+по умолчанию в них идут миксы все каналы -18 а их канал напрмиер у барабнщика будут барабаны в 0, у аккустики - аккустика в 0 и тд
+Группа Вокала все вокалы кроме speaker идут сначала в эту группу потом в мастер
+Группа инстурментов так же идут все сначала сюда потом в мастер в Main1
+Vocal Reverb  и Delay постфедер для вокалов
+Матрица стрим`;
+
+const iem = (name: string, own: string[] = []) => ({ name, iem: true, contains: ["all"], own });
+
+export const USER_TEST_EXPECT: EvalCase["expect"] = {
+  sources: [],
+  channels: [
+    { kind: "vocal", label: "Mic{n}", count: 7 },
+    { kind: "speech", label: "Speaker" },
+    { kind: "bass" },
+    { kind: "sampler", stereo: true },
+    { kind: "ac_guitar", count: 2 },
+    { kind: "keys", stereo: true },
+    { kind: "e_guitar", stereo: true },
+    { kind: "reserve", count: 2 },
+    { kind: "talkback" },
+  ],
+  mixes: [
+    iem("InEarDrums", ["sampler"]),
+    iem("InEarBass", ["bass"]),
+    iem("InEarAccustic", ["ac_guitar"]),
+    iem("InEarPiano", ["keys"]),
+    iem("InEarElectric", ["e_guitar"]),
+    iem("InEarVocal1", ["Mic1"]),
+    iem("InEarVocal2", ["Mic2"]),
+    iem("InEarVocal3", ["Mic3"]),
+    iem("InEar9"),
+    iem("InEar10"),
+  ],
+  groups: [
+    { name: "Vocal Group", members: ["vocal"], except: ["Speaker"] },
+    { name: "Instr Group", members: ["bass", "sampler", "ac_guitar", "keys", "e_guitar"] },
+  ],
+  mains: [
+    { main: 1, name: "Tops" },
+    { main: 2, name: "Subs" },
+  ],
+  fx: ["vocal_reverb", "delay"],
+  stream: true,
+  streamVia: "matrix",
+};
+
+export const CASES_ADVANCED: EvalCase[] = [{ id: "user-test", text: USER_TEST_TEXT, expect: USER_TEST_EXPECT }];

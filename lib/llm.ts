@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { FX_KINDS, IntentSchema, LEVEL_TARGETS, MONITOR_MIXES, SOURCE_KINDS, type Intent } from "./intent";
 import { parseRequest } from "./parse";
+import { expand } from "./scene";
 import { sigKey } from "./signature";
 
 // Chosen by `npm run eval` over 51 scenes and 10 models (2026-11): xiaomi/mimo-v2.6-flash was the most
@@ -23,8 +24,37 @@ const EXAMPLE_REQUESTS = [
   "Конференция: 3 петлички, ноутбук стерео. Ничего не мьютить.",
   "Two vocals, keys in stereo, bass, drums. In-ear mixes for everyone. Delay on vocals.",
 ];
+// A detailed-layout example, written by hand (the rule parser does not do layouts). Not in the eval sets.
+const LAYOUT_EXAMPLE = {
+  text: "Каналы: Vox1 - 3 и Host, потом бас, клавиши (стерео), место под 1 канал, толкбэк. Main1 — Зал, Main2 — Сабы. Ушные миксы InEarBass, InEarKeys и 2 вокальных InEarVox1 - 2: все каналы, у каждого свой в 0. Группа вокала — все вокалы. Матрица стрим, реверб на вокал.",
+  intent: {
+    sources: [],
+    channels: [
+      { kind: "vocal", label: "Vox{n}", count: 3, stereo: false },
+      { kind: "speech", label: "Host", count: 1, stereo: false },
+      { kind: "bass", count: 1, stereo: false },
+      { kind: "keys", count: 1, stereo: true },
+      { kind: "reserve", count: 1, stereo: false },
+      { kind: "talkback", count: 1, stereo: false },
+    ],
+    mixes: [
+      { name: "InEarBass", iem: true, contains: ["all"], own: ["bass"] },
+      { name: "InEarKeys", iem: true, contains: ["all"], own: ["keys"] },
+      { name: "InEarVox1", iem: true, contains: ["all"], own: ["Vox1"] },
+      { name: "InEarVox2", iem: true, contains: ["all"], own: ["Vox2"] },
+    ],
+    groups: [{ name: "Vocal Group", members: ["vocal"], except: [] }],
+    mains: [{ main: 1, name: "Hall" }, { main: 2, name: "Subs" }],
+    monitors: [], fx: ["vocal_reverb"], stream: true, streamVia: "matrix",
+    levels: [], unmute: [], mute: [], settings: [], pages: [],
+  },
+};
+
 const examples = () =>
-  EXAMPLE_REQUESTS.map((t) => `Запрос: ${t}\nJSON: ${JSON.stringify(parseRequest(t).intent)}`).join("\n\n");
+  [
+    ...EXAMPLE_REQUESTS.map((t) => `Запрос: ${t}\nJSON: ${JSON.stringify(parseRequest(t).intent)}`),
+    `Запрос: ${LAYOUT_EXAMPLE.text}\nJSON: ${JSON.stringify(LAYOUT_EXAMPLE.intent)}`,
+  ].join("\n\n");
 
 export const SYSTEM_PROMPT = `Ты разбираешь запрос звукорежиссёра (русский или английский) на сцену для пульта Behringer WING и возвращаешь JSON по схеме.
 Номера каналов, HPF по умолчанию, цвета, шины, уровни по умолчанию (-18 dB) и mute по умолчанию задаёт код — ты только переводишь текст в поля.
@@ -60,6 +90,7 @@ fx (${FX_KINDS.join(", ")}) — только если сказано: "реве�
   в эффект по умолчанию и назван прямо: "дилей на сакс" → sax sendTo delay, "реверб на гитару" → e_guitar sendTo vocal_reverb,
   "реверб на бочку" → kick sendTo drum_reverb.
 stream: true только при словах стрим/трансляция/эфир/запись/YouTube или уровне "в стрим".
+  streamVia: "matrix", если стрим назван матрицей ("матрица стрим", "стрим через матрицу", "Stream matrix"); иначе "bus".
 
 levels — только при явном уровне. target ∈ ${LEVEL_TARGETS.join(", ")}. "погромче" -12, "намного громче" -6, "потише" -24, "еле слышно" -40, "в ноль" 0, "-10 дб" → -10.
   Без указания куда — target "fader". "барабанщику кик погромче" → monitor_drummer.
@@ -69,6 +100,20 @@ unmute — только при "не мьютить/открыть"; mute — ч
 pages — только если просят USER 1 / USER 2. sources — только инструменты, названные в самой фразе про страницу ("вокалы … на USER 1" → ["vocal"]),
   не весь состав; "мониторы/шины" в этой фразе → buses true, "DCA" → dca true. "все каналы на USER 1" → ["all"].
 Фантом, гейн, EQ, панораму, выходы и роутинг не отражай в JSON.
+
+ДЕТАЛЬНАЯ РАСКЛАДКА — только если запрос задаёт порядок/имена каналов, именованные миксы, группы, мейны или матрицу:
+- channels — каналы в порядке пульта (тогда sources = []). kind; label — только явное имя канала из запроса:
+  "Mic1 - 7" → {kind:"vocal", label:"Mic{n}", count:7}; "Speaker" → {kind:"speech", label:"Speaker"}. Для "Бас", "Клавиши" и т.п. label не задавай.
+  stereo: true для "(стерео)"; электронные барабаны → sampler; "оставим место N каналов" → {kind:"reserve", count:N}.
+- mixes — именованные мониторные миксы (тогда monitors = []): name как в запросе; iem true для in-ear; contains ["all"], если "все каналы";
+  own — свой инструмент музыканта: kind ("sampler", "keys"…) или имя канала ("Mic1"). Для барабанщика с электронными барабанами own ["sampler"].
+  Нумерованные вокальные миксы — у каждого свой микрофон по номеру: InEarVocal1 → own ["Mic1"], InEarVocal2 → ["Mic2"] (имена каналов из channels), а не все вокалы.
+  Если миксов больше, чем перечислено имён ("10 миксов" и 8 имён) — добавь недостающие по образцу имён: InEar9, InEar10.
+- groups — подгруппы: name латиницей, members — kinds участников, except — исключения ("кроме speaker" → ["Speaker"]).
+- mains — имена мейнов: [{main:1,name:"Tops"},{main:2,name:"Subs"}].
+- "матрица стрим" → stream true, streamVia "matrix"; обычный стрим → streamVia "bus".
+- Имена шин, групп и мейнов — латиницей, коротко (≤16): "Группа вокала" → "Vocal Group", "Группа инструментов" → "Instr Group",
+  "Топы" → "Tops", "Сабы" → "Subs". Имена, уже написанные латиницей (InEarDrums), оставляй как есть.
 
 Примеры:
 
@@ -110,9 +155,9 @@ export async function llmIntent(text: string, key: string, opts: LlmOptions = {}
         response_format: { type: "json_schema", json_schema: { name: "intent", strict: false, schema } },
         provider: { require_parameters: true }, // only route to providers that honor response_format
         temperature: 0,
-        max_tokens: 3000,
+        max_tokens: 6000, // detailed layouts are long JSON
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(45_000),
     });
   for (let attempt = 0; attempt < 2; attempt++) {
     const user = problem ? `${text}\n\nПредыдущий ответ не прошёл проверку схемы: ${problem}\nИсправь и верни валидный JSON.` : text;
@@ -130,23 +175,84 @@ export async function llmIntent(text: string, key: string, opts: LlmOptions = {}
       continue;
     }
     const parsed = IntentSchema.safeParse(json);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return repair(text, parsed.data);
     problem = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
   }
   throw new LlmError(`Модель не вернула валидную сцену: ${problem}`);
 }
 
+// ---------------------------------------------------------------- deterministic repairs
+// Things the text states unambiguously but models keep getting wrong; fixed in code after the model.
+const STREAM_MATRIX = /(?:матриц\p{L}*\s+(?:для\s+)?стрим\p{L}*|стрим\p{L}*\s+(?:через\s+|в\s+)?матриц\p{L}*|stream\s+matrix|matrix\s+(?:for\s+)?stream)/iu;
+
+const MIX_COUNT = /(\d{1,2})\s+(?:in-?ear|инир\p{L}*|ушн\p{L}*|мониторн\p{L}*|iem)?\s*микс/iu;
+const commonPrefix = (names: string[]) =>
+  names.reduce((p, n) => {
+    let i = 0;
+    while (i < p.length && i < n.length && p[i] === n[i]) i++;
+    return p.slice(0, i);
+  });
+
+export function repair(text: string, intent: Intent): Intent {
+  const out: Intent = { ...intent, mixes: intent.mixes.map((m) => ({ ...m })) };
+  // "Матрица стрим" → the stream is a matrix fed from Main 1, not a bus.
+  if (STREAM_MATRIX.test(text)) {
+    out.stream = true;
+    out.streamVia = "matrix";
+  }
+  // Channel names only when the request spells them (Latin, verbatim: "Mic1 - 7" → Mic{n}, "Speaker");
+  // invented ones ("Аккустика 2", "Acoustic2") fall back to the preset names ("Ac 1", "Ac 2").
+  const lowered = text.toLowerCase();
+  out.channels = out.channels.map((c) => {
+    if (!c.label) return c;
+    const stem = c.label.replace("{n}", "").trim().toLowerCase();
+    const spelled = /^[\x20-\x7e]+$/.test(c.label) && stem.length > 0 && lowered.includes(stem);
+    return spelled ? c : { ...c, label: undefined };
+  });
+  // A mix with no channels is never what was asked: an empty `contains` means "all channels".
+  for (const m of out.mixes) if (!m.contains.length) m.contains = ["all"];
+  // "10 InEar миксов" with fewer returned → add the missing ones named like the others (InEar9, InEar10).
+  const wanted = Number(MIX_COUNT.exec(text)?.[1] ?? 0);
+  if (wanted > out.mixes.length && out.mixes.length && wanted <= 16) {
+    const prefix = commonPrefix(out.mixes.map((m) => m.name)) || "Mix";
+    const iem = out.mixes.some((m) => m.iem);
+    for (let k = out.mixes.length + 1; k <= wanted; k++) {
+      const name = `${prefix}${k}`.slice(0, 16);
+      if (!out.mixes.some((m) => m.name === name)) out.mixes.push({ name, iem, contains: ["all"], own: [] });
+    }
+  }
+  // Numbered vocal mixes ("InEarVocal2") that got "all vocals" as their own channel → the N-th vocal channel.
+  if (out.channels.length) {
+    const vocals = expand(out).channels.filter((c) => c.kind === "vocal");
+    for (const m of out.mixes) {
+      const n = /(?:vocal|vox|вокал)\D*(\d+)$/i.exec(m.name)?.[1];
+      if (n && vocals[Number(n) - 1] && m.own.length === 1 && m.own[0] === "vocal") m.own = [vocals[Number(n) - 1].label];
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- voting
 // One model call is right ~97% of the time; its misses are random (a different scene each run).
 // So: compare it with the local parser. Same scene → done (1 call). Different → 2 more calls in
-// parallel and the scene with the most votes among {parser, call 1, call 2, call 3} wins.
+// parallel and the scene with the most votes among {parser, call 1, call 2, call 3} wins (tie → parser).
+// The parser votes only when it understood the whole request; detailed layouts it can't read get
+// three parallel model calls and a majority among them.
 export type VoteResult = { intent: Intent; calls: number; agreed: boolean; parserOnly?: true };
 
 export async function voteIntent(text: string, key: string, opts: LlmOptions = {}): Promise<VoteResult> {
   let parsed: Intent | null = null;
   try {
-    parsed = parseRequest(text).intent;
+    const r = parseRequest(text);
+    if (!r.unknown.length) parsed = r.intent; // a parser that didn't understand everything gets no vote
   } catch {} // parser found no sources — only the model votes
+  if (!parsed) {
+    // Detailed requests the parser can't read: three model calls at once, majority wins.
+    const runs = await Promise.allSettled([llmIntent(text, key, opts), llmIntent(text, key, opts), llmIntent(text, key, opts)]);
+    const models = runs.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (!models.length) throw (runs[0] as PromiseRejectedResult).reason;
+    return { intent: majority(models, []), calls: models.length, agreed: false };
+  }
   let first: Intent;
   try {
     first = await llmIntent(text, key, opts);
@@ -159,15 +265,19 @@ export async function voteIntent(text: string, key: string, opts: LlmOptions = {
 
   const more = await Promise.allSettled([llmIntent(text, key, opts), llmIntent(text, key, opts)]);
   const models = [first, ...more.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []))];
-  const tally = new Map<string, { intent: Intent; votes: number; model: number }>();
-  for (const [i, intent] of [...models, ...(parsed ? [parsed] : [])].entries()) {
+  return { intent: majority(models, [parsed]), calls: models.length, agreed: false };
+}
+
+// The scene with the most votes. On a tie the parser's scene wins (it only votes when it understood the
+// whole request, and it is exact on every evaluation scene), then the first model call.
+function majority(models: Intent[], parser: Intent[]): Intent {
+  const tally = new Map<string, { intent: Intent; votes: number; parser: boolean; first: number }>();
+  [...models, ...parser].forEach((intent, i) => {
     const k = sigKey(intent);
-    const t = tally.get(k) ?? { intent, votes: 0, model: 0 };
+    const t = tally.get(k) ?? { intent, votes: 0, parser: false, first: i };
     t.votes++;
-    if (i < models.length) t.model++;
+    if (i >= models.length) t.parser = true;
     tally.set(k, t);
-  }
-  // Most votes wins; on a tie the scene more model calls agree on, then the first call.
-  const best = [...tally.values()].sort((a, b) => b.votes - a.votes || b.model - a.model)[0];
-  return { intent: best.intent, calls: models.length, agreed: false };
+  });
+  return [...tally.values()].sort((a, b) => b.votes - a.votes || Number(b.parser) - Number(a.parser) || a.first - b.first)[0].intent;
 }

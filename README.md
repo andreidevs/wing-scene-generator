@@ -38,7 +38,7 @@
 |---|---|---|---|
 | Монитор вокала | Bus 1 MON Vox | mono | PRE |
 | Монитор барабанщика | Bus 2 MON Drum | mono | PRE |
-| Реверб вокала | Bus 13 Vox Rev, FX1 V-REV | stereo → Main 1 | POST |
+| Реверб вокала | Bus 13 Vocal Reverb, FX1 V-REV | stereo → Main 1 | POST |
 | Реверб барабанов | Bus 14 Drum Rev, FX2 ROOM | stereo → Main 1 | POST |
 | Стрим | Bus 16 Stream | stereo | POST |
 

@@ -1,4 +1,4 @@
-import type { Intent } from "./intent";
+import { IntentSchema, type Intent } from "./intent";
 
 // The ТЗ request and its expected intent. Used by tests (lib/parse.test.ts checks the parser matches it).
 export const EXAMPLE_TEXT =
@@ -6,7 +6,7 @@ export const EXAMPLE_TEXT =
   "Вокалам мониторы, барабанщику кик и снейр, стриму стерео-микс. Подпиши каналы, назначь цвета, " +
   "сделай HPF, компрессию на вокалах и барабанах, посылы на реверб и мониторы.";
 
-export const EXAMPLE_INTENT: Intent = {
+export const EXAMPLE_INTENT: Intent = IntentSchema.parse({
   sources: [
     { kind: "vocal", count: 4 },
     { kind: "ac_guitar", count: 2 },
@@ -25,4 +25,4 @@ export const EXAMPLE_INTENT: Intent = {
   mute: [],
   settings: [],
   pages: [],
-};
+});

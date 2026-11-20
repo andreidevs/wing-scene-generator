@@ -10,7 +10,7 @@
 import type { Intent } from "../lib/intent";
 import { llmIntent, voteIntent } from "../lib/llm";
 import { parseRequest } from "../lib/parse";
-import { CASES, CASES_HOLDOUT } from "./eval-cases";
+import { CASES, CASES_ADVANCED, CASES_HOLDOUT } from "./eval-cases";
 import { FIELDS, score } from "../lib/signature";
 
 try {
@@ -23,7 +23,7 @@ const arg = (name: string) => {
 };
 const verbose = process.argv.includes("--verbose");
 const onlyCases = arg("cases")?.split(",");
-const cases = (process.argv.includes("--holdout") ? CASES_HOLDOUT : CASES).filter((c) => !onlyCases || onlyCases.includes(c.id));
+const cases = (process.argv.includes("--holdout") ? CASES_HOLDOUT : process.argv.includes("--advanced") ? CASES_ADVANCED : CASES).filter((c) => !onlyCases || onlyCases.includes(c.id));
 
 // ---------------------------------------------------------------- runners
 type Run = { id: string; intent: Intent | null; error?: string; ms: number; cost: number; tokens: number };

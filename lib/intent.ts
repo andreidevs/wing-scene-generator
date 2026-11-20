@@ -21,11 +21,45 @@ export const FX_KINDS = ["vocal_reverb", "drum_reverb", "delay"] as const;
 export const LEVEL_TARGETS = ["fader", ...MONITOR_MIXES.map((m) => `monitor_${m}` as const), ...FX_KINDS, "stream"] as const;
 
 const Sources = z.array(z.union([IntentSourceKind, z.literal("all")]));
+// A reference to channels: a source kind ("vocal", "drum_kit"), "all", or a channel label ("Mic1", "Drums").
+const Ref = z.string().min(1).max(32);
+const Name = z.string().min(1).max(16); // WING name limit
 
-export const IntentSchema = z.object({
-  sources: z
-    .array(z.object({ kind: IntentSourceKind, count: z.number().int().min(1).max(16) }))
-    .min(1),
+export const IntentSchema = z
+  .object({
+  // Simple lineup: kinds and counts, laid out by the code. Empty when `channels` gives an explicit layout.
+  sources: z.array(z.object({ kind: IntentSourceKind, count: z.number().int().min(1).max(16) })).default([]),
+  // Explicit layout, in console order: "первые 8 каналов Mic1-7 и Speaker, потом бас…, резерв 2 канала".
+  // label "Mic{n}" + count 7 → Mic1…Mic7; stereo → "Keys L"/"Keys R"; kind "reserve" = leave channels untouched.
+  channels: z
+    .array(
+      z.object({
+        kind: z.union([SourceKind, z.literal("reserve")]),
+        label: Name.optional(),
+        count: z.number().int().min(1).max(16).default(1),
+        stereo: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+  // Named monitor mixes ("InEarDrums", "InEarVocal1"…): everything in `contains` at -18 dB, `own` at 0 dB.
+  // When present they replace the per-family `monitors`.
+  mixes: z
+    .array(
+      z.object({
+        name: Name,
+        iem: z.boolean().default(true),
+        contains: z.array(Ref).default(["all"]),
+        own: z.array(Ref).default([]),
+      }),
+    )
+    .max(16)
+    .default([]),
+  // Subgroups: members go to the group bus (GRP send) instead of Main 1; the group goes to Main 1.
+  groups: z.array(z.object({ name: Name, members: z.array(Ref).min(1), except: z.array(Ref).default([]) })).max(4).default([]),
+  // Names for the mains ("Main1 — Топы, Main2 — Сабы"). Channels always go to Main 1 only.
+  mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: Name })).default([]),
+  // Stream as a bus with per-channel sends (default) or as a matrix fed from Main 1.
+  streamVia: z.enum(["bus", "matrix"]).default("bus"),
   monitors: z.array(
     z.object({
       for: z.enum(MONITOR_MIXES),
@@ -72,5 +106,6 @@ export const IntentSchema = z.object({
     )
     .max(2)
     .default([]),
-});
+  })
+  .refine((i) => i.sources.length > 0 || i.channels.some((c) => c.kind !== "reserve"), { message: "Нужен хотя бы один источник", path: ["sources"] });
 export type Intent = z.infer<typeof IntentSchema>;

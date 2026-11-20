@@ -3,8 +3,8 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { IntentSchema, type Intent } from "./intent";
-import { BUS_ROLES, CHANNEL_PRESETS, DEFAULT_LEVEL_DB } from "./presets";
-import { expand } from "./scene";
+import { CHANNEL_PRESETS, DEFAULT_LEVEL_DB } from "./presets";
+import { expand, sendLevelOf } from "./scene";
 
 type EvalCase = { text: string; expect: Record<string, unknown> };
 
@@ -14,21 +14,22 @@ const uniq = (a: string[]) => [...new Set(a)].sort();
 export function signature(intent: Intent): Sig {
   const sc = expand(intent);
   const ch = sc.channels;
+  const busName = (id: string) => sc.buses.find((b) => b.id === id)?.name ?? id;
   const count = new Map<string, number>();
   ch.forEach((c) => count.set(c.kind, (count.get(c.kind) ?? 0) + 1));
   return {
     channels: [...count].map(([k, n]) => `${k}×${n}`).sort(),
     mixes: uniq(sc.mixes.monitors.map((m) => `${m.role}${m.iem ? "(iem)" : ""}`)),
-    monitorSends: uniq(ch.flatMap((c) => c.monitorSends.map((r) => `${c.kind}>${r}`))),
+    monitorSends: uniq(ch.flatMap((c) => c.monitorSends.map((r) => `${c.kind}>${busName(r)}`))),
     fx: uniq(sc.mixes.fx),
     fxSends: uniq(ch.flatMap((c) => c.fxSends.map((r) => `${c.kind}>${r}`))),
     stream: sc.mixes.stream,
     levels: uniq(
       ch.flatMap((c) => [
         ...(c.fader !== DEFAULT_LEVEL_DB ? [`${c.kind}:fader=${c.fader}`] : []),
-        ...BUS_ROLES.filter((r) => c.sendLevel[r] !== DEFAULT_LEVEL_DB && (r === "stream" ? c.stream : [...c.monitorSends, ...c.fxSends].includes(r as never))).map(
-          (r) => `${c.kind}:${r}=${c.sendLevel[r]}`,
-        ),
+        ...sc.buses
+          .filter((b) => sendLevelOf(c, b.id) !== DEFAULT_LEVEL_DB && (b.kind === "stream" ? c.stream : [...c.monitorSends, ...c.fxSends].includes(b.id)))
+          .map((b) => `${c.label}:${b.name}=${sendLevelOf(c, b.id)}`),
       ]),
     ),
     open: uniq(ch.filter((c) => !c.mute).map((c) => c.kind)),
@@ -43,10 +44,16 @@ export function signature(intent: Intent): Sig {
       }),
     ),
     pages: JSON.stringify(sc.pages),
+    // Explicit layout and routing (named channels, reserved gaps, buses, groups, mains, matrices).
+    layout: intent.channels.length ? ch.map((c) => `${c.ch}:${c.label}:${c.kind}`) : [],
+    buses: sc.buses.map((b) => `${b.bus}:${b.name}:${b.kind}:${b.mode}${b.iem ? ":iem" : ""}`),
+    routing: uniq(ch.map((c) => `${c.label}:${c.toMain ? "main" : "-"}:${c.groups.map(busName).join("+")}`)),
+    mains: JSON.stringify(sc.mains),
+    matrices: JSON.stringify(sc.matrices),
   };
 }
 
-export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages"];
+export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages", "layout", "buses", "routing", "mains", "matrices"];
 
 export function score(c: EvalCase, got: Intent | null) {
   const want = signature(IntentSchema.parse({ monitors: [], fx: [], stream: false, ...c.expect }));

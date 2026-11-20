@@ -1,5 +1,5 @@
 import { getNode, parseOrdered } from "./ordered-json";
-import { BUS_LAYOUT, BUS_ROLES, ROLE_LABELS, type BusRole } from "./presets";
+import { BUS_LAYOUT, BUS_ROLES } from "./presets";
 import { allowedPaths, busRoutes } from "./wing";
 
 export type BaselineReport = {
@@ -11,8 +11,8 @@ export type BaselineReport = {
   errors: string[];
   missingPaths: string[];
   warnings: string[];
-  // Where each role bus is routed in the baseline. Outputs are patched by hand, so this is info only.
-  routes: Record<BusRole, string[]>;
+  // Where each bus (1..16) is routed in the baseline. Outputs are patched by hand, so this is info only.
+  routes: Record<number, string[]>;
 };
 
 type Ae = {
@@ -29,7 +29,7 @@ const FX_TEMPLATES_VERSION = "3.3.1"; // firmware the FX templates were captured
 export function validateBaseline(raw: string): BaselineReport {
   const report: BaselineReport = {
     valid: false, channelCount: 0, errors: [], missingPaths: [], warnings: [],
-    routes: Object.fromEntries(BUS_ROLES.map((r) => [r, []])) as unknown as Record<BusRole, string[]>,
+    routes: {},
   };
   let snap: { type?: string; creator?: string; creator_vers?: string; creator_model?: string; ae_data?: Ae; ce_data?: { layer?: unknown } };
   let tree;
@@ -67,19 +67,15 @@ export function validateBaseline(raw: string): BaselineReport {
   if (snap.creator_vers && snap.creator_vers !== FX_TEMPLATES_VERSION) {
     report.warnings.push(`Прошивка ${snap.creator_vers}, а шаблоны FX сняты с ${FX_TEMPLATES_VERSION}. Проверь реверберы в WING EDIT.`);
   }
+  // FX slots are fixed per effect role; buses are allocated per scene, so renames show up in the diff instead.
   for (const role of BUS_ROLES) {
-    const b = BUS_LAYOUT[role];
-    const bus = a.bus[String(b.bus)];
-    if (bus?.name && bus.name !== b.name) report.warnings.push(`Bus ${b.bus} «${bus.name}» будет переименована в «${b.name}» (${ROLE_LABELS[role]})`);
-    if (bus?.preins?.ins && bus.preins.ins !== "NONE" && bus.preins.ins !== `FX${b.fx?.slot}`) {
-      report.warnings.push(`На Bus ${b.bus} стоит инсерт ${bus.preins.ins}${b.fx ? `, он будет заменён на FX${b.fx.slot}` : ""}`);
-    }
-    if (b.fx) {
-      const mdl = a.fx[String(b.fx.slot)]?.mdl;
-      if (mdl && mdl !== "NONE") report.warnings.push(`FX${b.fx.slot} (${mdl}) будет заменён шаблоном ${b.fx.template}`);
-    }
-    report.routes[role] = busRoutes(a, b.bus);
+    const fx = BUS_LAYOUT[role].fx;
+    const mdl = fx && a.fx[String(fx.slot)]?.mdl;
+    if (fx && mdl && mdl !== "NONE") report.warnings.push(`FX${fx.slot} (${mdl}) будет заменён шаблоном ${fx.template}, если сцена его использует`);
   }
+  const named = Object.entries(a.bus).filter(([, b]) => b.name).map(([n, b]) => `Bus ${n} «${b.name}»`);
+  if (named.length) report.warnings.push(`В baseline уже есть названные шины, сцена может их перезаписать: ${named.join(", ")}`);
+  for (let n = 1; n <= 16; n++) report.routes[n] = busRoutes(a, n);
 
   report.valid = report.errors.length === 0;
   return report;

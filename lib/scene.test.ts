@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { IntentSchema } from "./intent";
-import { applyKind, editField, expand, SceneSchema } from "./scene";
+import { applyKind, editField, expand, SceneSchema, sendLevelOf } from "./scene";
 import { EXAMPLE_INTENT } from "./example";
 
 const intent = IntentSchema.parse(EXAMPLE_INTENT);
@@ -56,7 +56,7 @@ test("expand output is a valid scene.json (import schema stays in sync)", () => 
 test("levels default to -18 dB; explicit intent levels override per source and target", () => {
   const def = expand(intent).channels[0];
   assert.equal(def.fader, -18);
-  assert.equal(def.sendLevel.mon_drummer, -18);
+  assert.equal(sendLevelOf(def, "mon_drummer"), -18);
   const s = expand({
     ...intent,
     levels: [
@@ -66,9 +66,9 @@ test("levels default to -18 dB; explicit intent levels override per source and t
     ],
   });
   const ch = Object.fromEntries(s.channels.map((c) => [c.label, c]));
-  assert.equal(ch["Kick"].sendLevel.mon_drummer, -10);
-  assert.equal(ch["Snare"].sendLevel.mon_drummer, -18);
+  assert.equal(sendLevelOf(ch["Kick"], "mon_drummer"), -10);
+  assert.equal(sendLevelOf(ch["Snare"], "mon_drummer"), -18);
   assert.equal(ch["OH 1"].fader, -12, "drum_kit expands to kit pieces");
   assert.equal(ch["Vox 1"].fader, -18);
-  assert.ok(s.channels.every((c) => c.sendLevel.stream === -6));
+  assert.ok(s.channels.every((c) => sendLevelOf(c, "stream") === -6));
 });

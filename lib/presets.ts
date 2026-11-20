@@ -45,7 +45,7 @@ export const CHANNEL_PRESETS = {
   tom:       { label: "Tom",    color: "red",       hpf: 60,  comp: true,  gate: true,  fx: ["fx_drum"],              monitor: [],              dca: "Drums", icon: 206 }, // H/M/L/F by order, see TOM_ICONS
   overhead:  { label: "OH",     color: "orange",    hpf: 120, comp: false, gate: false, fx: [],                       monitor: [],              dca: "Drums", icon: 210 },
   perc:      { label: "Perc",   color: "orange",    hpf: 150, comp: false, gate: false, fx: ["fx_drum"],              monitor: ["mon_drummer"], dca: "Perc", icon: 216 },
-  sampler:   { label: "SPD",    color: "orange",    hpf: 30,  comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: "Drums", icon: 223 },
+  sampler:   { label: "E-Drums", color: "orange",    hpf: 30,  comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: "Drums", icon: 223 },
   bass:      { label: "Bass",   color: "darkblue",  hpf: 30,  comp: true,  gate: false, fx: [],                       monitor: ["mon_drummer", "mon_bass"], dca: "Bass", icon: 300 },
   e_guitar:  { label: "Gtr",    color: "green",     hpf: 80,  comp: false, gate: false, fx: [],                       monitor: ["mon_guitar"],  dca: "Guitars", icon: 306 },
   ac_guitar: { label: "Ac",     color: "green",     hpf: 100, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_guitar"],  dca: "Acoustic", icon: 304 },
@@ -141,15 +141,9 @@ export const BUS_LAYOUT: Record<BusRole, BusSpec> = {
   mon_keys:    { bus: 5,  name: "MON Keys",  color: "turquoise",   mono: true,  mode: "PRE",  toMain: false, icon: 408 },
   mon_brass:   { bus: 6,  name: "MON Brass", color: "yellow", mono: true,  mode: "PRE",  toMain: false, icon: 312 },
   mon_strings: { bus: 7,  name: "MON Str",   color: "yellow", mono: true,  mode: "PRE",  toMain: false, icon: 309 },
-  fx_vocal:    { bus: 13, name: "Vox Rev",   color: "grayblue",   mono: false, mode: "POST", toMain: true, icon: 6, fx: { slot: 1, template: "vocal_hall" } },
+  fx_vocal:    { bus: 13, name: "Vocal Reverb", color: "grayblue",   mono: false, mode: "POST", toMain: true, icon: 6, fx: { slot: 1, template: "vocal_hall" } },
   fx_drum:     { bus: 14, name: "Drum Rev",  color: "grayblue",   mono: false, mode: "POST", toMain: true, icon: 6, fx: { slot: 2, template: "drum_room" } },
   fx_delay:    { bus: 15, name: "Delay",     color: "grayblue",   mono: false, mode: "POST", toMain: true, icon: 6, fx: { slot: 3, template: "vocal_delay" } },
   stream:      { bus: 16, name: "Stream",    color: "grayblue", mono: false, mode: "POST", toMain: false, icon: 605 },
 };
 
-export const ROLE_LABELS: Record<BusRole, string> = {
-  mon_vocals: "Монитор вокала", mon_drummer: "Монитор барабанщика", mon_bass: "Монитор басиста",
-  mon_guitar: "Монитор гитариста", mon_keys: "Монитор клавишника", mon_brass: "Монитор духовых",
-  mon_strings: "Монитор струнных", fx_vocal: "Реверб вокала", fx_drum: "Реверб барабанов",
-  fx_delay: "Дилей", stream: "Стрим",
-};
