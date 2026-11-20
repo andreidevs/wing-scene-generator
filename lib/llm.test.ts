@@ -15,28 +15,25 @@ function fakeFetch(replies: string[]) {
 }
 
 test("llm: sends the cheap model + JSON schema, returns a validated intent", async () => {
-  process.env.OPENROUTER_API_KEY = "test-key";
-  delete process.env.OPENROUTER_MODEL;
   const { impl, calls } = fakeFetch([JSON.stringify(EXAMPLE_INTENT)]);
-  const intent = await llmIntent("4 вокала…", impl);
+  const intent = await llmIntent("4 вокала…", "test-key", undefined, impl);
   assert.deepEqual(intent.sources, EXAMPLE_INTENT.sources);
   assert.equal(calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
   assert.equal(calls[0].body.model, DEFAULT_MODEL);
   assert.equal((calls[0].body.response_format as { type: string }).type, "json_schema");
   assert.equal(calls[0].body.temperature, 0);
+  assert.deepEqual(calls[0].body.models, [DEFAULT_MODEL, "openai/gpt-oss-20b"]);
 });
 
 test("llm: one repair retry with the validation error, then gives up", async () => {
-  process.env.OPENROUTER_API_KEY = "test-key";
   const ok = fakeFetch(['```json\n{"sources":[]}\n```', JSON.stringify(EXAMPLE_INTENT)]);
-  await llmIntent("x", ok.impl);
+  await llmIntent("x", "test-key", undefined, ok.impl);
   assert.equal(ok.calls.length, 2);
   assert.match(String((ok.calls[1].body.messages as { content: string }[])[1].content), /не прошёл проверку/);
   const bad = fakeFetch(["not json", '{"sources":[{"kind":"banjo","count":1}]}']);
-  await assert.rejects(llmIntent("x", bad.impl), LlmError);
+  await assert.rejects(llmIntent("x", "test-key", undefined, bad.impl), LlmError);
 });
 
 test("llm: refuses without a key", async () => {
-  delete process.env.OPENROUTER_API_KEY;
-  await assert.rejects(llmIntent("x"), /OPENROUTER_API_KEY/);
+  await assert.rejects(llmIntent("x", "  "), /ключ/);
 });

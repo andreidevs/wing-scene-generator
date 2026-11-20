@@ -1,5 +1,6 @@
-// Optional LLM parsing through OpenRouter. Only used when OPENROUTER_API_KEY is set on the server;
-// the local parser (lib/parse.ts) stays the default and works without any key.
+// Optional LLM parsing through OpenRouter, called straight from the browser with the user's own key
+// (the site is static — GitHub Pages — so there is no server to hold one). The key is stored only in
+// that browser and sent only to openrouter.ai. Without a key the local parser (lib/parse.ts) is used.
 // The model only classifies the request into the same Intent the parser produces — everything after
 // that (channels, presets, buses, the .snap patch) is the same deterministic code.
 
@@ -7,14 +8,11 @@ import { z } from "zod";
 import { FX_KINDS, IntentSchema, LEVEL_TARGETS, MONITOR_MIXES, SOURCE_KINDS, type Intent } from "./intent";
 import { TEMPLATES } from "./vocab";
 
-// Cheapest OpenRouter model with structured outputs at the time of writing (≈$0.03 / 1M tokens);
-// override with OPENROUTER_MODEL (e.g. a ":free" model). The fallback is tried if the first one fails.
+// Cheapest OpenRouter model with structured outputs at the time of writing (≈$0.03 / 1M tokens).
+// The fallback is tried by OpenRouter if the first one fails.
 export const DEFAULT_MODEL = "mistralai/mistral-nemo";
 const FALLBACK_MODEL = "openai/gpt-oss-20b";
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-
-export const llmModel = () => process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
-export const llmEnabled = () => Boolean(process.env.OPENROUTER_API_KEY);
 
 const SYSTEM = `Ты разбираешь запрос звукорежиссёра (русский или английский) на сцену для пульта Behringer WING.
 Верни только JSON по схеме. Ты лишь классифицируешь запрос — номера каналов, HPF по умолчанию, цвета, шины и routing задаёт код.
@@ -48,18 +46,17 @@ const schema = z.toJSONSchema(IntentSchema, { io: "input" });
 // Some models wrap JSON in ``` fences even with response_format.
 const unfence = (s: string) => s.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 
-export async function llmIntent(text: string, fetchImpl: typeof fetch = fetch): Promise<Intent> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new LlmError("OPENROUTER_API_KEY не задан");
+export async function llmIntent(text: string, key: string, model = DEFAULT_MODEL, fetchImpl: typeof fetch = fetch): Promise<Intent> {
+  if (!key.trim()) throw new LlmError("Нужен ключ OpenRouter");
   let problem = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const user = problem ? `${text}\n\nПредыдущий ответ не прошёл проверку схемы: ${problem}\nИсправь и верни валидный JSON.` : text;
     const res = await fetchImpl(ENDPOINT, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "WING Scene Generator" },
+      headers: { Authorization: `Bearer ${key.trim()}`, "Content-Type": "application/json", "X-Title": "WING Scene Generator" },
       body: JSON.stringify({
-        model: llmModel(),
-        models: [llmModel(), FALLBACK_MODEL],
+        model,
+        models: [...new Set([model, FALLBACK_MODEL])],
         messages: [
           { role: "system", content: SYSTEM },
           { role: "user", content: user },
@@ -71,6 +68,7 @@ export async function llmIntent(text: string, fetchImpl: typeof fetch = fetch): 
       }),
       signal: AbortSignal.timeout(45_000),
     });
+    if (res.status === 401) throw new LlmError("OpenRouter отклонил ключ (401)");
     if (!res.ok) throw new LlmError(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[]; error?: { message?: string } };
     if (data.error) throw new LlmError(`OpenRouter: ${data.error.message ?? "ошибка"}`);

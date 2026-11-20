@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CheckCircle2, Download, FileUp, Plus, Sparkles, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { validateBaseline, type BaselineReport } from "@/lib/baseline";
 import { EXAMPLE_TEXT } from "@/lib/example";
 import { SOURCE_KINDS, type Intent, type SourceKind } from "@/lib/intent";
+import { DEFAULT_MODEL, llmIntent } from "@/lib/llm";
 import { parseRequest } from "@/lib/parse";
 import { BUS_LAYOUT, BUS_ROLES, COLORS, DCA_GROUPS, ROLE_LABELS, type BusRole, type ColorId, type FxRole, type MonitorRole } from "@/lib/presets";
 import { buildReport } from "@/lib/report";
@@ -56,6 +57,18 @@ const COLOR_SWATCH: Record<ColorId, string> = {
   blue: "bg-blue-500", purple: "bg-purple-400", pink: "bg-pink-400", gray: "bg-slate-400",
 };
 const NO_DCA = "none";
+const LLM_KEY_STORAGE = "wing-scene-generator:openrouter-key";
+const subscribeStorage = (cb: () => void) => {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+};
+const readStoredKey = () => {
+  try {
+    return localStorage.getItem(LLM_KEY_STORAGE) ?? "";
+  } catch {
+    return ""; // storage blocked (private mode etc.) — LLM simply stays off
+  }
+};
 
 
 const toggle = <T,>(list: T[], value: T, on: boolean) =>
@@ -92,15 +105,18 @@ export default function Home() {
   const [manual, setManual] = useState<string[]>([]);
   const [addKind, setAddKind] = useState<SourceKind>("vocal");
   const [template, setTemplate] = useState<string | null>(null);
-  const [llm, setLlm] = useState<{ enabled: boolean; model: string | null; busy: boolean }>({ enabled: false, model: null, busy: false });
-
-  // The LLM button exists only when the server has an OpenRouter key.
-  useEffect(() => {
-    fetch("/api/llm")
-      .then((r) => r.json())
-      .then((d) => setLlm((l) => ({ ...l, enabled: Boolean(d.enabled), model: d.model ?? null })))
-      .catch(() => {});
-  }, []);
+  // Optional LLM: the user's own OpenRouter key, kept only in this browser (the site is static).
+  const storedKey = useSyncExternalStore(subscribeStorage, readStoredKey, () => "");
+  const [typedKey, setTypedKey] = useState<string | null>(null);
+  const llmKey = typedKey ?? storedKey;
+  const [llmBusy, setLlmBusy] = useState(false);
+  function saveLlmKey(k: string) {
+    setTypedKey(k);
+    try {
+      if (k) localStorage.setItem(LLM_KEY_STORAGE, k);
+      else localStorage.removeItem(LLM_KEY_STORAGE);
+    } catch {}
+  }
 
   function loadIntent(intent: Intent) {
     setScene(expand(intent, text));
@@ -108,19 +124,16 @@ export default function Home() {
   }
 
   async function recognizeLlm() {
-    setLlm((l) => ({ ...l, busy: true }));
+    setLlmBusy(true);
     try {
-      const res = await fetch("/api/llm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-      const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      loadIntent(data.intent);
+      loadIntent(await llmIntent(text, llmKey));
       setUnknown([]);
       setManual([]);
       setTemplate(null);
     } catch (e) {
       setError(`LLM: ${(e as Error).message}`);
     } finally {
-      setLlm((l) => ({ ...l, busy: false }));
+      setLlmBusy(false);
     }
   }
   const sceneFile = useRef<HTMLInputElement>(null);
@@ -230,9 +243,9 @@ export default function Home() {
             <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={4000} />
             <div className="flex flex-wrap gap-2">
               <Button onClick={recognize} disabled={!text.trim()}>Распознать</Button>
-              {llm.enabled && (
-                <Button variant="outline" onClick={recognizeLlm} disabled={!text.trim() || llm.busy} title={`OpenRouter · ${llm.model}`}>
-                  <Sparkles /> {llm.busy ? "LLM думает…" : "Через LLM"}
+              {llmKey && (
+                <Button variant="outline" onClick={recognizeLlm} disabled={!text.trim() || llmBusy} title={`OpenRouter · ${DEFAULT_MODEL}`}>
+                  <Sparkles /> {llmBusy ? "LLM думает…" : "Через LLM"}
                 </Button>
               )}
               <Button variant="outline" onClick={() => setText(EXAMPLE_TEXT)}>Пример из ТЗ</Button>
@@ -252,6 +265,23 @@ export default function Home() {
                 ))}
               </ul>
               <p className="mt-2">Фантом, гейн, EQ, панорама и выходы не меняются: разбор отметит их как «вручную».</p>
+            </details>
+            <details className="text-muted-foreground text-sm">
+              <summary className="cursor-pointer">LLM через OpenRouter (необязательно)</summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <p>
+                  Без ключа всё работает локально. С ключом появляется кнопка «Через LLM» ({DEFAULT_MODEL}, доли цента за запрос).
+                  Ключ хранится только в этом браузере и отправляется только на openrouter.ai.
+                </p>
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  placeholder="sk-or-…"
+                  value={llmKey}
+                  onChange={(e) => saveLlmKey(e.target.value.trim())}
+                  className="max-w-sm"
+                />
+              </div>
             </details>
           </CardContent>
         </Card>

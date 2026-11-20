@@ -1,4 +1,4 @@
-// Build the ТЗ example against fixtures/baseline.snap into out/ for a manual check in WING EDIT.
+// Build the ТЗ example against fixtures/baseline.snap into examples/ for a manual check in WING EDIT.
 // Usage: npm run example
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { validateBaseline } from "../lib/baseline";
@@ -13,7 +13,7 @@ const base = JSON.parse(raw);
 const conn = Object.fromEntries(
   Object.entries(base.ae_data.ch as Record<string, { in: { conn: { grp: string; in: number } } }>).map(([n, c]) => [Number(n), `${c.in.conn.grp}${c.in.conn.in}`]),
 );
-mkdirSync("out", { recursive: true });
+mkdirSync("examples", { recursive: true });
 
 const variants: [string, Intent, string][] = [
   ["example", EXAMPLE_INTENT, EXAMPLE_TEXT],
@@ -23,7 +23,7 @@ for (const [name, intent, text] of variants) {
   const scene = expand(intent, text);
   const snap = apply(raw, compile(scene, base));
   const summary = summarize(diff(raw, snap));
-  writeFileSync(`out/Baseline_generated_${name}.snap`, snap);
-  writeFileSync(`out/Baseline_generated_${name}_report.md`, buildReport({ baselineName: "Baseline.snap", baseline: validateBaseline(raw), scene, summary, conn, generatedAt: new Date() }));
+  writeFileSync(`examples/Baseline_generated_${name}.snap`, snap);
+  writeFileSync(`examples/Baseline_generated_${name}_report.md`, buildReport({ baselineName: "Baseline.snap", baseline: validateBaseline(raw), scene, summary, conn, generatedAt: new Date() }));
   console.log(name, summary.byKind, summary.guards.filter((g) => g.count).map((g) => g.label), `outside: ${summary.outsideAllowlist.length}`);
 }
