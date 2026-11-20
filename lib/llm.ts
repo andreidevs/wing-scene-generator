@@ -1,6 +1,5 @@
-// Optional LLM parsing through OpenRouter. Called either by the server route (app/api/llm, owner's key
-// in OPENROUTER_API_KEY) or straight from the browser with a visitor's own key (stored only in that
-// browser, sent only to openrouter.ai). Without any key the local parser (lib/parse.ts) is used.
+// Optional LLM parsing through OpenRouter, called by the server route (app/api/llm) with the owner's
+// key from OPENROUTER_API_KEY. Without the key the local parser (lib/parse.ts) is the only option.
 // The model only classifies the request into the same Intent the parser produces — everything after
 // that (channels, presets, buses, the .snap patch) is the same deterministic code.
 
