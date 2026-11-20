@@ -36,7 +36,7 @@ test("ТЗ scene: only allowlisted fields change, guards stay at 0", () => {
   assert.equal(out.ch["10"].name, "Vox 1");
   assert.equal(out.ch["10"].col, 12, "vocals are mauve (WING color 12)");
   assert.equal(out.ch["10"].flt.lc, true);
-  assert.equal(out.ch["10"].flt.lcf, 100);
+  assert.equal(out.ch["10"].flt.lcf, 40);
   assert.equal(out.ch["10"].fdr, -18);
   assert.equal(out.ch["10"].icon, 101, "vocal: dynamic handheld icon");
   assert.equal(out.ch["1"].col, 9, "drums red");

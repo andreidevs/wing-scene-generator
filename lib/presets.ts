@@ -21,7 +21,7 @@ export type DcaGroup = (typeof DCA_GROUPS)[number];
 export type ChannelPreset = {
   label: string;
   color: ColorId;
-  hpf: number; // Hz
+  hpf: number; // Hz. All 40 by default (HPF on, the engineer tunes it per source)
   comp: boolean;
   gate: boolean;
   fx: FxRole[];
@@ -39,37 +39,37 @@ const ALL_PLAYER_MONITORS: MonitorRole[] = ["mon_vocals", "mon_bass", "mon_guita
 // 300 strings/guitars/winds, 400 keys, 600 devices). Cross-checked on fixtures/show-working.snap:
 // Kick 201, Snare 202, HHat 205, F-tom 209, kit 210, Bass 300, Acc 304, Strat 306, Keys 408, choir 112, ear 601, FX 6.
 export const CHANNEL_PRESETS = {
-  kick:      { label: "Kick",   color: "red",       hpf: 40,  comp: true,  gate: true,  fx: [],                       monitor: ["mon_drummer", "mon_bass"], dca: "Drums", icon: 201 },
-  snare:     { label: "Snare",  color: "red",       hpf: 80,  comp: true,  gate: true,  fx: ["fx_drum"],              monitor: ["mon_drummer"], dca: "Drums", icon: 202 },
-  hihat:     { label: "HiHat",  color: "red",       hpf: 200, comp: false, gate: false, fx: [],                       monitor: [],              dca: "Drums", icon: 205 },
-  tom:       { label: "Tom",    color: "red",       hpf: 60,  comp: true,  gate: true,  fx: ["fx_drum"],              monitor: [],              dca: "Drums", icon: 206 }, // H/M/L/F by order, see TOM_ICONS
-  overhead:  { label: "OH",     color: "orange",    hpf: 120, comp: false, gate: false, fx: [],                       monitor: [],              dca: "Drums", icon: 210 },
-  perc:      { label: "Perc",   color: "orange",    hpf: 150, comp: false, gate: false, fx: ["fx_drum"],              monitor: ["mon_drummer"], dca: "Perc", icon: 216 },
-  sampler:   { label: "E-Drums", color: "orange",    hpf: 30,  comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: "Drums", icon: 223 },
-  bass:      { label: "Bass",   color: "darkblue",  hpf: 30,  comp: true,  gate: false, fx: [],                       monitor: ["mon_drummer", "mon_bass"], dca: "Bass", icon: 300 },
-  e_guitar:  { label: "Gtr",    color: "green",     hpf: 80,  comp: false, gate: false, fx: [],                       monitor: ["mon_guitar"],  dca: "Guitars", icon: 306 },
-  ac_guitar: { label: "Ac",     color: "green",     hpf: 100, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_guitar"],  dca: "Acoustic", icon: 304 },
-  keys:      { label: "Keys",   color: "turquoise", hpf: 40,  comp: false, gate: false, fx: [],                       monitor: ["mon_keys"],    dca: "Keys", icon: 408 },
-  accordion: { label: "Accord", color: "turquoise", hpf: 80,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_keys"],    dca: "Keys", icon: 316 },
-  harp:      { label: "Harp",   color: "yellow",    hpf: 60,  comp: false, gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 315 },
-  violin:    { label: "Violin", color: "yellow",    hpf: 150, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 309 },
-  cello:     { label: "Cello",  color: "yellow",    hpf: 60,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 310 },
-  sax:       { label: "Sax",    color: "yellow",    hpf: 100, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 312 },
-  trumpet:   { label: "Tpt",    color: "yellow",    hpf: 150, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 314 },
-  trombone:  { label: "Tbn",    color: "yellow",    hpf: 80,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 313 },
-  horn:      { label: "Horn",   color: "yellow",    hpf: 50,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 313 },
-  flute:     { label: "Flute",  color: "yellow",    hpf: 200, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 318 },
-  winds:     { label: "Wind",   color: "yellow",    hpf: 120, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 319 },
-  harmonica: { label: "Harmonica", color: "yellow", hpf: 150, comp: true,  gate: false, fx: ["fx_vocal", "fx_delay"], monitor: ["mon_vocals", "mon_brass"], dca: "Brass", icon: 317 },
-  playback:  { label: "PB",     color: "grayblue",  hpf: 20,  comp: false, gate: false, fx: [],                       monitor: [],              dca: "Playback", icon: 605 },
-  dj:        { label: "DJ",     color: "grayblue",  hpf: 20,  comp: false, gate: false, fx: [],                       monitor: [],              dca: "Playback", icon: 611 },
-  vocal:     { label: "Vox",    color: "mauve",     hpf: 100, comp: true,  gate: false, fx: ["fx_vocal", "fx_delay"], monitor: ALL_PLAYER_MONITORS, dca: "Vocals", icon: 101 },
-  backvocal: { label: "BVox",   color: "mauve",     hpf: 120, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_vocals"],  dca: "Vocals", icon: 112 },
-  choir:     { label: "Choir",  color: "mauve",     hpf: 120, comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_vocals"],  dca: "Vocals", icon: 112 },
-  speech:    { label: "MC",     color: "coral",     hpf: 120, comp: true,  gate: false, fx: [],                       monitor: [],              dca: "Speech", icon: 102 },
-  ambience:  { label: "Amb",    color: "grayblue",  hpf: 80,  comp: false, gate: false, fx: [],                       monitor: [...MONITOR_ROLES], dca: null, icon: 109, main: false, iemOnly: true },
-  click:     { label: "Click",  color: "grayblue",  hpf: 20,  comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: null, icon: 222, main: false },
-  talkback:  { label: "TB",     color: "coral",     hpf: 120, comp: true,  gate: false, fx: [],                       monitor: [...MONITOR_ROLES], dca: null, icon: 100, main: false },
+  kick:      { label: "Kick",   color: "red",       hpf: 40,   comp: true,  gate: true,  fx: [],                       monitor: ["mon_drummer", "mon_bass"], dca: "Drums", icon: 201 },
+  snare:     { label: "Snare",  color: "red",       hpf: 40,   comp: true,  gate: true,  fx: ["fx_drum"],              monitor: ["mon_drummer"], dca: "Drums", icon: 202 },
+  hihat:     { label: "HiHat",  color: "red",       hpf: 40,  comp: false, gate: false, fx: [],                       monitor: [],              dca: "Drums", icon: 205 },
+  tom:       { label: "Tom",    color: "red",       hpf: 40,   comp: true,  gate: true,  fx: ["fx_drum"],              monitor: [],              dca: "Drums", icon: 206 }, // H/M/L/F by order, see TOM_ICONS
+  overhead:  { label: "OH",     color: "orange",    hpf: 40,  comp: false, gate: false, fx: [],                       monitor: [],              dca: "Drums", icon: 210 },
+  perc:      { label: "Perc",   color: "orange",    hpf: 40,  comp: false, gate: false, fx: ["fx_drum"],              monitor: ["mon_drummer"], dca: "Perc", icon: 216 },
+  sampler:   { label: "E-Drums", color: "orange",    hpf: 40,   comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: "Drums", icon: 223 },
+  bass:      { label: "Bass",   color: "darkblue",  hpf: 40,   comp: true,  gate: false, fx: [],                       monitor: ["mon_drummer", "mon_bass"], dca: "Bass", icon: 300 },
+  e_guitar:  { label: "Gtr",    color: "green",     hpf: 40,   comp: false, gate: false, fx: [],                       monitor: ["mon_guitar"],  dca: "Guitars", icon: 306 },
+  ac_guitar: { label: "Ac",     color: "green",     hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_guitar"],  dca: "Acoustic", icon: 304 },
+  keys:      { label: "Keys",   color: "turquoise", hpf: 40,   comp: false, gate: false, fx: [],                       monitor: ["mon_keys"],    dca: "Keys", icon: 408 },
+  accordion: { label: "Accord", color: "turquoise", hpf: 40,   comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_keys"],    dca: "Keys", icon: 316 },
+  harp:      { label: "Harp",   color: "yellow",    hpf: 40,   comp: false, gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 315 },
+  violin:    { label: "Violin", color: "yellow",    hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 309 },
+  cello:     { label: "Cello",  color: "yellow",    hpf: 40,   comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_strings"], dca: "Strings", icon: 310 },
+  sax:       { label: "Sax",    color: "yellow",    hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 312 },
+  trumpet:   { label: "Tpt",    color: "yellow",    hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 314 },
+  trombone:  { label: "Tbn",    color: "yellow",    hpf: 40,   comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 313 },
+  horn:      { label: "Horn",   color: "yellow",    hpf: 40,   comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 313 },
+  flute:     { label: "Flute",  color: "yellow",    hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 318 },
+  winds:     { label: "Wind",   color: "yellow",    hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_brass"],   dca: "Brass", icon: 319 },
+  harmonica: { label: "Harmonica", color: "yellow", hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal", "fx_delay"], monitor: ["mon_vocals", "mon_brass"], dca: "Brass", icon: 317 },
+  playback:  { label: "PB",     color: "grayblue",  hpf: 40,   comp: false, gate: false, fx: [],                       monitor: [],              dca: "Playback", icon: 605 },
+  dj:        { label: "DJ",     color: "grayblue",  hpf: 40,   comp: false, gate: false, fx: [],                       monitor: [],              dca: "Playback", icon: 611 },
+  vocal:     { label: "Vox",    color: "mauve",     hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal", "fx_delay"], monitor: ALL_PLAYER_MONITORS, dca: "Vocals", icon: 101 },
+  backvocal: { label: "BVox",   color: "mauve",     hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_vocals"],  dca: "Vocals", icon: 112 },
+  choir:     { label: "Choir",  color: "mauve",     hpf: 40,  comp: true,  gate: false, fx: ["fx_vocal"],             monitor: ["mon_vocals"],  dca: "Vocals", icon: 112 },
+  speech:    { label: "MC",     color: "coral",     hpf: 40,  comp: true,  gate: false, fx: [],                       monitor: [],              dca: "Speech", icon: 102 },
+  ambience:  { label: "Amb",    color: "grayblue",  hpf: 40,   comp: false, gate: false, fx: [],                       monitor: [...MONITOR_ROLES], dca: null, icon: 109, main: false, iemOnly: true },
+  click:     { label: "Click",  color: "grayblue",  hpf: 40,   comp: false, gate: false, fx: [],                       monitor: ["mon_drummer"], dca: null, icon: 222, main: false },
+  talkback:  { label: "TB",     color: "coral",     hpf: 40,  comp: true,  gate: false, fx: [],                       monitor: [...MONITOR_ROLES], dca: null, icon: 100, main: false },
 } satisfies Record<SourceKind, ChannelPreset>;
 
 // Channel layout order on the console.

@@ -25,7 +25,7 @@ test("sends follow the intent: vox → MON vocals + FX vocal, kick/snare → MON
   assert.deepEqual(ch["Ac 1"].fxSends, ["fx_vocal"]);
   assert.ok(Object.values(ch).every((c) => c.stream));
   assert.equal(ch["Kick"].hpf, 40);
-  assert.equal(ch["Vox 1"].hpf, 100);
+  assert.equal(ch["Vox 1"].hpf, 40, "HPF on at 40 Hz everywhere by default");
   assert.ok(ch["Vox 1"].comp && ch["Kick"].comp && ch["Kick"].gate);
 });
 
@@ -41,7 +41,7 @@ test("applyKind keeps hand-edited fields", () => {
   const changed = applyKind(edited, "vocal", s.mixes);
   assert.equal(changed.kind, "vocal");
   assert.equal(changed.color, "blue", "edited field kept");
-  assert.equal(changed.hpf, 100, "unedited field from new preset");
+  assert.equal(changed.label, "Vox", "unedited field from new preset");
   assert.deepEqual(changed.fxSends, ["fx_vocal"]);
 });
 
