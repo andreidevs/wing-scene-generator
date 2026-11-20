@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CheckCircle2, Download, FileUp, Plus, Sparkles, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -110,6 +110,14 @@ export default function Home() {
   const [typedKey, setTypedKey] = useState<string | null>(null);
   const llmKey = typedKey ?? storedKey;
   const [llmBusy, setLlmBusy] = useState(false);
+  // Server-side LLM (owner's key on Vercel): when present, everyone gets the button without a key.
+  const [serverLlm, setServerLlm] = useState<{ enabled: boolean; model: string | null }>({ enabled: false, model: null });
+  useEffect(() => {
+    fetch("/api/llm")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setServerLlm({ enabled: Boolean(d.enabled), model: d.model ?? null }))
+      .catch(() => {});
+  }, []);
   function saveLlmKey(k: string) {
     setTypedKey(k);
     try {
@@ -126,7 +134,16 @@ export default function Home() {
   async function recognizeLlm() {
     setLlmBusy(true);
     try {
-      loadIntent(await llmIntent(text, llmKey));
+      let intent: Intent;
+      if (serverLlm.enabled) {
+        const res = await fetch("/api/llm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+        const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        intent = data.intent;
+      } else {
+        intent = await llmIntent(text, llmKey);
+      }
+      loadIntent(intent);
       setUnknown([]);
       setManual([]);
       setTemplate(null);
@@ -243,8 +260,8 @@ export default function Home() {
             <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={4000} />
             <div className="flex flex-wrap gap-2">
               <Button onClick={recognize} disabled={!text.trim()}>Распознать</Button>
-              {llmKey && (
-                <Button variant="outline" onClick={recognizeLlm} disabled={!text.trim() || llmBusy} title={`OpenRouter · ${DEFAULT_MODEL}`}>
+              {(serverLlm.enabled || llmKey) && (
+                <Button variant="outline" onClick={recognizeLlm} disabled={!text.trim() || llmBusy} title={`OpenRouter · ${serverLlm.model ?? DEFAULT_MODEL}`}>
                   <Sparkles /> {llmBusy ? "LLM думает…" : "Через LLM"}
                 </Button>
               )}
@@ -266,6 +283,7 @@ export default function Home() {
               </ul>
               <p className="mt-2">Фантом, гейн, EQ, панорама и выходы не меняются: разбор отметит их как «вручную».</p>
             </details>
+            {!serverLlm.enabled && (
             <details className="text-muted-foreground text-sm">
               <summary className="cursor-pointer">LLM через OpenRouter (необязательно)</summary>
               <div className="mt-2 flex flex-col gap-2">
@@ -283,6 +301,7 @@ export default function Home() {
                 />
               </div>
             </details>
+            )}
           </CardContent>
         </Card>
 

@@ -12,9 +12,11 @@
 
 Полный список понимаемых слов и фраз: [docs/parser.md](docs/parser.md). Словарь — `lib/vocab.ts`: 31 тип источника, мониторы для 7 музыкантов (напольные и in-ear), 16 шаблонов составов, уровни, обработка, mute, страницы.
 
-Необязательно: если ввести свой ключ OpenRouter (блок «LLM через OpenRouter» под полем запроса), появляется кнопка «Через LLM» — дешёвая модель `mistralai/mistral-nemo` выдаёт то же намерение. Ключ хранится только в браузере пользователя и отправляется только на openrouter.ai.
+Необязательно: LLM через OpenRouter (`mistralai/mistral-nemo`, доли цента за запрос) выдаёт то же намерение, что и парсер.
+- На сервере: переменная `OPENROUTER_API_KEY` (локально в `.env.local`, на Vercel в Environment Variables) — кнопка «Через LLM» доступна всем посетителям, ключ не уходит в браузер. Поставь лимит кредитов на ключ в OpenRouter.
+- Без серверного ключа посетитель может ввести свой ключ в блоке «LLM через OpenRouter»: он хранится только в его браузере.
 
-Сайт статический и публикуется на GitHub Pages (`.github/workflows/pages.yml`) при пуше в `main`: тесты → `next build` (static export) → Pages.
+Деплой — Vercel (Next.js определяется автоматически). CI на GitHub Actions (`.github/workflows/ci.yml`): типы, линт, тесты, сборка.
 
 Фрагменты, которые парсер не понял, показываются в UI, а не угадываются. Номера каналов, HPF, цвета, иконки, comp/gate, посылы и DCA задаёт код (`lib/presets.ts`, `lib/scene.ts`). В таблице каналы можно добавлять, удалять и править.
 
@@ -69,8 +71,8 @@ npm test                                  # tsx --test lib/*.test.ts
 npm run inspect -- fixtures/baseline.snap # структура snapshot
 npm run inspect -- fixtures/baseline.snap --grep "ch/#/name"
 npm run example                           # пример из ТЗ → examples/*.snap + отчёт, для проверки в WING EDIT
-npm run dev                               # http://localhost:3000
-PAGES_BASE_PATH=/wing-scene-generator npm run build   # static export в out/, как на Pages
+npm run dev                               # http://localhost:3000 (cp .env.example .env.local для LLM)
+npm run build                             # продакшн-сборка, как на Vercel
 ```
 
 Модель задаётся в одном месте: `PLAN_MODEL` в `lib/plan.ts`.
