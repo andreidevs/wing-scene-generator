@@ -14,11 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { validateBaseline, type BaselineReport } from "@/lib/baseline";
 import { SOURCE_KINDS, type Intent, type SourceKind } from "@/lib/intent";
 import { parseRequest } from "@/lib/parse";
-import { COLORS, DCA_GROUPS, type ColorId } from "@/lib/presets";
+import { COLORS, CONSOLES, DCA_GROUPS, type ColorId, type ConsoleModel } from "@/lib/presets";
 import { buildReport } from "@/lib/report";
 import { applyKind, editField, expand, newChannel, SceneSchema, sendLevelOf, type BusDef, type ChannelDraft, type EditableField, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
-import { apply, compile, describe, diff, summarize, type BaselineSnap, type DiffSummary } from "@/lib/wing";
+import { apply, compile, describe, diff, inputLabels, summarize, type BaselineSnap, type DiffSummary } from "@/lib/wing";
 
 const KIND_LABELS: Record<SourceKind, string> = {
   kick: "Kick", snare: "Snare", hihat: "Hi-hat", tom: "Tom", overhead: "Overhead", perc: "Percussion", sampler: "Sampler / SPD",
@@ -56,6 +56,7 @@ const COLOR_SWATCH: Record<ColorId, string> = {
   yellow: "bg-yellow-400", orange: "bg-orange-500", red: "bg-red-600", coral: "bg-orange-300", pink: "bg-pink-400", mauve: "bg-fuchsia-500",
 };
 const NO_DCA = "none";
+const CONSOLE_LABELS = Object.fromEntries(Object.entries(CONSOLES).map(([k, v]) => [k, v.label])) as Record<ConsoleModel, string>;
 const BUS_KIND_LABEL: Record<BusDef["kind"], string> = { monitor: "монитор", fx: "эффект", group: "группа", stream: "стрим" };
 
 
@@ -177,7 +178,7 @@ export default function Home() {
     try {
       const snap = apply(baseline.raw, compile(parsed.data, baseline.snap));
       const summary = summarize(diff(baseline.raw, snap));
-      const report = buildReport({ baselineName: baseline.name, baseline: baseline.report, scene: parsed.data, summary, conn: baseline.conn, generatedAt: new Date() });
+      const report = buildReport({ baselineName: baseline.name, baseline: baseline.report, snap: baseline.snap, scene: parsed.data, summary, conn: inputLabels(parsed.data, baseline.snap), generatedAt: new Date() });
       setBuild({ scene, snap, summary, report });
       setError(null);
     } catch (e) {
@@ -198,6 +199,7 @@ export default function Home() {
   const stale = build !== null && build.scene !== scene;
   // Send columns: every bus the scene creates (in-ear/monitor mixes, groups, FX, stream), in bus order.
   const sendCols: BusDef[] = scene?.buses ?? [];
+  const conn = scene && baseline ? inputLabels(scene, baseline.snap) : (baseline?.conn ?? {});
   const outName = baseline ? `${baseline.name.replace(/\.snap$/i, "")}_generated_${new Date().toISOString().slice(0, 10)}` : "scene";
 
   return (
@@ -338,6 +340,7 @@ export default function Home() {
                   <TableHead>Имя</TableHead>
                   <TableHead>Цвет</TableHead>
                   <TableHead>Вход</TableHead>
+                  <TableHead title="Стерео-канал: один канал на паре входов в режиме ST">Стерео</TableHead>
                   <TableHead>HPF, Hz</TableHead>
                   <TableHead className="text-center">Comp</TableHead>
                   <TableHead className="text-center">Gate</TableHead>
@@ -390,7 +393,10 @@ export default function Home() {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">{baseline?.conn[c.ch] ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">{conn[c.ch] ?? "—"}</TableCell>
+                    <TableCell className="text-center">
+                      <Checkbox checked={c.stereo} className={cn(edited(c, "stereo"))} onCheckedChange={(on) => update(c.ch, (d) => editField(d, "stereo", on))} />
+                    </TableCell>
                     <TableCell>
                       <NumberCell value={c.hpf} min={20} max={2000} className={edited(c, "hpf")} onCommit={(n) => update(c.ch, (d) => editField(d, "hpf", n))} />
                     </TableCell>
@@ -471,6 +477,32 @@ export default function Home() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <span className="text-muted-foreground">Пульт:</span>
+              <Select items={CONSOLE_LABELS} value={scene.console} onValueChange={(v) => v && setScene((s) => s && { ...s, console: v as ConsoleModel })}>
+                <SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(CONSOLES) as ConsoleModel[]).map((k) => (
+                    <SelectItem key={k} value={k}>{CONSOLE_LABELS[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-muted-foreground">{CONSOLES[scene.console].local} локальных входов, дальше AES50 A</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <span className="text-muted-foreground">Запись всех каналов (со входов):</span>
+              {(
+                [
+                  ["usb", "USB (DAW)"],
+                  ["card", "WING-LIVE (SD)"],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="flex items-center gap-1.5">
+                  <Checkbox checked={scene.record[k]} onCheckedChange={(on) => setScene((s) => s && { ...s, record: { ...s.record, [k]: on } })} />
+                  {label}
+                </label>
+              ))}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={runBuild} disabled={!baseline?.report.valid}>
                 {build && !stale ? "Пересобрать" : "Собрать .snap"}

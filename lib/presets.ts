@@ -92,7 +92,7 @@ export const FULL_DRUM_KIT: { kind: SourceKind; count: number }[] = [
   { kind: "tom", count: 3 }, { kind: "overhead", count: 2 },
 ];
 // Sources that come as L/R pairs when the request says "стерео" ("клавиши стерео" → 2 channels).
-export const STEREO_KINDS: SourceKind[] = ["keys", "playback", "dj", "sampler", "accordion", "ambience"];
+export const STEREO_KINDS: SourceKind[] = ["keys", "playback", "dj", "sampler", "accordion", "e_guitar"];
 
 export const MONITOR_ROLE = Object.fromEntries(MONITOR_MIXES.map((m) => [m, `mon_${m}`])) as {
   [K in (typeof MONITOR_MIXES)[number]]: `mon_${K}`;
@@ -100,6 +100,13 @@ export const MONITOR_ROLE = Object.fromEntries(MONITOR_MIXES.map((m) => [m, `mon
 export const FX_ROLE = { vocal_reverb: "fx_vocal", drum_reverb: "fx_drum", delay: "fx_delay" } as const satisfies Record<(typeof FX_KINDS)[number], FxRole>;
 
 export const MAX_CHANNELS = 40; // WING input channels
+// Console models: same 40 channels / 16 buses, different local I/O. Local inputs fill first, then AES50 A.
+export const CONSOLES = {
+  rack: { label: "WING Rack", local: 24 },
+  compact: { label: "WING Compact", local: 24 },
+  wing: { label: "WING", local: 8 },
+} as const;
+export type ConsoleModel = keyof typeof CONSOLES;
 
 // ponytail: one default for channel faders, send levels and role bus faders; tune on the rig.
 export const DEFAULT_LEVEL_DB = -18;

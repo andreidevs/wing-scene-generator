@@ -80,26 +80,29 @@ function hitsIn(clause: string): Hit[] {
 // (≤3 words, not reaching back past the previous mention: "2 вокала и акустика" → 1 acoustic) or right
 // after it ("хор на 6 микрофонов", "вокал x4"). Several counted mentions of one kind add up
 // ("one lavalier and two handhelds" → 3); uncounted repeats don't ("ведущий с радиомикрофоном" → 1).
-type Found = { kind: Src; count: number; at: number; explicit: boolean; micOnly: boolean };
+type Found = { kind: Src; count: number; at: number; explicit: boolean; micOnly: boolean; stereo: boolean };
 
 function sourcesIn(clause: string): Found[] {
   const hits = hitsIn(clause);
   MIC.lastIndex = 0;
   const micOnly = hits.length === 1 && hits[0].kind === "vocal" && MIC.test(hits[0].text);
   const stereo = has(STEREO, clause);
-  const per = new Map<Src, { explicit: number; pair: boolean; at: number }>();
+  const per = new Map<Src, { explicit: number; before: number; pair: boolean; at: number }>();
   hits.forEach((h, i) => {
     const gap = clause.slice(i ? hits[i - 1].end : 0, h.at);
-    const n = countIn(gap) ?? countAfter(clause.slice(h.end, hits[i + 1]?.at ?? clause.length));
-    const p = per.get(h.kind) ?? { explicit: 0, pair: false, at: h.at };
+    const before = countIn(gap);
+    const n = before ?? countAfter(clause.slice(h.end, hits[i + 1]?.at ?? clause.length));
+    const p = per.get(h.kind) ?? { explicit: 0, before: 0, pair: false, at: h.at };
     p.explicit += n ?? 0;
+    if (!per.has(h.kind)) p.before = before ?? 0; // "гитара в стерео с двух комбиков": the 2nd mention counts the pair
     p.pair ||= PAIR_KINDS.includes(h.kind) && /(?:ы|и|s)$/u.test(h.text);
     per.set(h.kind, p);
   });
   return [...per].map(([kind, p]) => {
-    let count = p.explicit || (p.pair ? 2 : 1);
-    if (!p.explicit && stereo && STEREO_KINDS.includes(kind as never)) count = 2; // "клавиши стерео" → L/R
-    return { kind, count: Math.min(count, 16), at: p.at, explicit: p.explicit > 0, micOnly };
+    const st = stereo && STEREO_KINDS.includes(kind as never); // "клавиши стерео" → one stereo channel
+    // "2 клавиши стерео" = two stereo keys; "гитара в стерео с двух комбиков" = one stereo pair.
+    const count = st ? p.before || 1 : p.explicit || (p.pair ? 2 : 1);
+    return { kind, count: Math.min(count, 16), at: p.at, explicit: p.explicit > 0, micOnly, stereo: st };
   });
 }
 
@@ -169,8 +172,17 @@ const isDrum = (k: Src) => k === "drum_kit" || DRUM_KINDS.includes(k as never);
 
 export type ParseResult = { intent: Intent; unknown: string[]; manual: string[]; template: string | null };
 
+// "выходы всех каналов на usb для записи" → usb; "запись на флешку / sd / встроенный рекордер" → card.
+export function recordIn(clause: string): { usb: boolean; card: boolean } | null {
+  const c = clause.toLowerCase();
+  if (!has(RE.record, c) || !(has(RE.recordUsb, c) || has(RE.recordCard, c))) return null;
+  return { card: has(RE.recordCard, c), usb: has(RE.recordUsb, c.replace(/usb[-\s]?(?=флешк)/gu, "")) }; // "usb-флешка" is the card
+}
+
 export function parseRequest(text: string): ParseResult {
   const sources = new Map<Src, number>();
+  const stereoKinds = new Set<Src>();
+  const record = { usb: false, card: false };
   const monitors = new Map<Mix, { set: Set<Src>; iem: boolean | null }>();
   const fx = new Set<Intent["fx"][number]>();
   const levels: Level[] = [];
@@ -238,6 +250,14 @@ export function parseRequest(text: string): ParseResult {
       const other = target === unmute ? mute : unmute;
       (has(RE.all, headText) || !head.length ? ["all" as const] : head).forEach((k) => target.add(k));
       tail.forEach((k) => other.add(k));
+      continue;
+    }
+
+    // 2b. Recording outputs, before "manual outputs/usb" and before "запись" is read as the stream.
+    const rec = recordIn(clause);
+    if (rec) {
+      record.usb ||= rec.usb;
+      record.card ||= rec.card;
       continue;
     }
 
@@ -365,7 +385,10 @@ export function parseRequest(text: string): ParseResult {
       continue;
     }
     if (srcs.length || fullKit) {
-      for (const s of srcs) sources.set(s.kind, (sources.get(s.kind) ?? 0) + s.count);
+      for (const s of srcs) {
+        sources.set(s.kind, (sources.get(s.kind) ?? 0) + s.count);
+        if (s.stereo) stereoKinds.add(s.kind);
+      }
       const last = srcs[srcs.length - 1];
       lastSource = last ? { kind: last.kind, explicit: last.explicit } : null;
       continue;
@@ -377,7 +400,10 @@ export function parseRequest(text: string): ParseResult {
   // click, talkback) do not count as "naming the lineup" — they are added on top of the template.
   const usedTemplate = template && [...sources.keys()].every((k) => AUX_KINDS.includes(k)) ? template : null;
   if (usedTemplate) {
-    for (const s of usedTemplate.intent.sources ?? []) sources.set(s.kind, (sources.get(s.kind) ?? 0) + s.count);
+    for (const s of usedTemplate.intent.sources ?? []) {
+      sources.set(s.kind, (sources.get(s.kind) ?? 0) + s.count);
+      if (s.stereo) stereoKinds.add(s.kind);
+    }
     if (!monitors.size) for (const m of usedTemplate.intent.monitors ?? []) monitors.set(m.for, { set: new Set(), iem: m.iem || null });
     if (!fx.size) usedTemplate.intent.fx?.forEach((f) => fx.add(f));
     if (stream === null && usedTemplate.intent.stream) stream = true;
@@ -421,10 +447,11 @@ export function parseRequest(text: string): ParseResult {
   }
 
   const intent = IntentSchema.parse({
-    sources: [...sources].map(([kind, count]) => ({ kind, count: Math.min(count, 16) })),
+    sources: [...sources].map(([kind, count]) => ({ kind, count: Math.min(count, 16), stereo: stereoKinds.has(kind) })),
     monitors: [...monitors].map(([m, v]) => ({ for: m, contains: [...v.set], iem: v.iem ?? iemAll })),
     fx: [...fx],
     stream: stream ?? false,
+    record,
     levels,
     unmute: [...unmute],
     mute: [...mute],

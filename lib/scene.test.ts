@@ -46,7 +46,7 @@ test("applyKind keeps hand-edited fields", () => {
 });
 
 test("more than 40 channels is rejected", () => {
-  assert.throws(() => expand({ ...intent, sources: [{ kind: "vocal", count: 16 }, { kind: "keys", count: 16 }, { kind: "tom", count: 16 }] }));
+  assert.throws(() => expand({ ...intent, sources: [{ kind: "vocal", count: 16, stereo: false }, { kind: "keys", count: 16, stereo: false }, { kind: "tom", count: 16, stereo: false }] }));
 });
 
 test("expand output is a valid scene.json (import schema stays in sync)", () => {

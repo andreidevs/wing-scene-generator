@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { FX_KINDS, IntentSchema, LEVEL_TARGETS, MONITOR_MIXES, SOURCE_KINDS, type Intent } from "./intent";
-import { parseRequest } from "./parse";
+import { parseRequest, recordIn } from "./parse";
 import { expand } from "./scene";
 import { sigKey } from "./signature";
 
@@ -66,7 +66,7 @@ sources — инструменты и микрофоны, kind ∈ ${SOURCE_KIND
 - "барабаны/ударные/ударка" без перечисления → drum_kit (count 1). Если части перечислены (кик, снейр, хэт, томы, оверы) — только части, без drum_kit.
   "полная ударка" → kick 1, snare 1, hihat 1, tom 3, overhead 2.
 - count — число перед словом или после ("хор на 6 микрофонов" → choir 6, "вокал x3" → 3). Без числа — 1; "оверы"/"тарелки" — 2.
-  "стерео" у keys, playback, dj, sampler, accordion, ambience — 2 канала. Число относится только к ближайшему слову ("2 вокала и акустика" → vocal 2, ac_guitar 1).
+  "стерео" у keys, playback, dj, sampler, accordion, e_guitar — ОДИН канал {count:1, stereo:true} (на WING стерео — один канал на паре входов). Без слова "стерео" stereo:false. Число относится только к ближайшему слову ("2 вокала и акустика" → vocal 2, ac_guitar 1).
 - Исполнитель в именительном падеже = его инструмент: трубач → trumpet, саксофонист → sax, басист → bass, гитарист → e_guitar,
   клавишник/пианист → keys, скрипач → violin, барабанщик → drum_kit; "поёт/поют" → vocal (каждый поющий — 1 vocal).
 - бэк-вокал/бэки/подпевка → backvocal; лид/основной вокал/солист → vocal;
@@ -99,12 +99,14 @@ settings — только для названных инструментов: hp
 unmute — только при "не мьютить/открыть"; mute — что явно закрыть ("кроме клика"). "Ничего не мьютить" → unmute ["all"].
 pages — только если просят USER 1 / USER 2. sources — только инструменты, названные в самой фразе про страницу ("вокалы … на USER 1" → ["vocal"]),
   не весь состав; "мониторы/шины" в этой фразе → buses true, "DCA" → dca true. "все каналы на USER 1" → ["all"].
-Фантом, гейн, EQ, панораму, выходы и роутинг не отражай в JSON.
+Фантом, гейн, EQ, панораму, выходы и роутинг не отражай в JSON. Исключение — запись:
+record.usb true — "выходы всех каналов на USB для записи" / мультитрек в DAW; record.card true — запись каналов на флешку/SD,
+встроенный рекордер, WING-LIVE. "Запись стрима/эфира" без USB/флешки — это stream, не record.
 
 ДЕТАЛЬНАЯ РАСКЛАДКА — только если запрос задаёт порядок/имена каналов, именованные миксы, группы, мейны или матрицу:
 - channels — каналы в порядке пульта (тогда sources = []). kind; label — только явное имя канала из запроса:
   "Mic1 - 7" → {kind:"vocal", label:"Mic{n}", count:7}; "Speaker" → {kind:"speech", label:"Speaker"}. Для "Бас", "Клавиши" и т.п. label не задавай.
-  stereo: true для "(стерео)"; электронные барабаны → sampler; "оставим место N каналов" → {kind:"reserve", count:N}.
+  stereo: true для "(стерео)" — это один стерео-канал, не L/R; электронные барабаны → sampler; "оставим место N каналов" → {kind:"reserve", count:N}.
 - mixes — именованные мониторные миксы (тогда monitors = []): name как в запросе; iem true для in-ear; contains ["all"], если "все каналы";
   own — свой инструмент музыканта: kind ("sampler", "keys"…) или имя канала ("Mic1"). Для барабанщика с электронными барабанами own ["sampler"].
   Нумерованные вокальные миксы — у каждого свой микрофон по номеру: InEarVocal1 → own ["Mic1"], InEarVocal2 → ["Mic2"] (имена каналов из channels), а не все вокалы.
@@ -199,6 +201,11 @@ export function repair(text: string, intent: Intent): Intent {
   if (STREAM_MATRIX.test(text)) {
     out.stream = true;
     out.streamVia = "matrix";
+  }
+  // Recording outputs: the model often drops them; the parser's sentence rules catch the usual phrasing.
+  for (const sentence of text.split(/[.;!?\n]+/)) {
+    const rec = recordIn(sentence);
+    if (rec) out.record = { usb: out.record.usb || rec.usb, card: out.record.card || rec.card };
   }
   // Channel names only when the request spells them (Latin, verbatim: "Mic1 - 7" → Mic{n}, "Speaker");
   // invented ones ("Аккустика 2", "Acoustic2") fall back to the preset names ("Ac 1", "Ac 2").

@@ -63,7 +63,7 @@ test("ТЗ scene: only allowlisted fields change, guards stay at 0", () => {
 
 test("apply rejects anything outside the contract", () => {
   const ok = { op: "set" as const };
-  assert.throws(() => apply(raw, [{ ...ok, path: "ch/1/in/conn/in", value: 5 }]), PatchError, "routing not allowlisted");
+  assert.throws(() => apply(raw, [{ ...ok, path: "ch/1/in/conn/altin", value: 5 }]), PatchError, "routing not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "main/1/fdr", value: 0 }]), PatchError, "main not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "io/in/LCL/1/vph", value: true }]), PatchError, "phantom not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "io/in/LCL/1/g", value: 10 }]), PatchError, "gain not allowlisted");
@@ -127,7 +127,7 @@ test("mute: every channel muted by default; `unmute` from the request opens name
 });
 
 test("click and talkback stay out of Main 1; delay bus gets FX3 ST-DL; unverified icons left as in baseline", () => {
-  const s = expand({ ...EXAMPLE_INTENT, sources: [{ kind: "vocal", count: 1 }, { kind: "violin", count: 1 }, { kind: "click", count: 1 }, { kind: "talkback", count: 1 }], fx: ["delay"] });
+  const s = expand({ ...EXAMPLE_INTENT, sources: [{ kind: "vocal", count: 1, stereo: false }, { kind: "violin", count: 1, stereo: false }, { kind: "click", count: 1, stereo: false }, { kind: "talkback", count: 1, stereo: false }], fx: ["delay"] });
   const out = JSON.parse(apply(raw, compile(s, JSON.parse(raw)))).ae_data;
   const ch = Object.fromEntries(s.channels.map((c) => [c.kind, c.ch]));
   assert.equal(out.ch[ch.click].main["1"].on, false);
@@ -159,7 +159,7 @@ test("in-ear mix: stereo bus named IEM, FX returns sent into it; wedge stays mon
 });
 
 test("toms get H/M/L/F icons in order; in-ear buses get the headphones icon", () => {
-  const s = expand({ ...EXAMPLE_INTENT, sources: [{ kind: "tom", count: 4 }, { kind: "vocal", count: 1 }], monitors: [{ for: "vocals", contains: [], iem: true }] });
+  const s = expand({ ...EXAMPLE_INTENT, sources: [{ kind: "tom", count: 4, stereo: false }, { kind: "vocal", count: 1, stereo: false }], monitors: [{ for: "vocals", contains: [], iem: true }] });
   const out = JSON.parse(apply(raw, compile(s, JSON.parse(raw)))).ae_data;
   assert.deepEqual([1, 2, 3, 4].map((n) => out.ch[String(n)].icon), [206, 207, 208, 209]);
   assert.equal(out.bus["1"].icon, 602);

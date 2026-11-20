@@ -16,7 +16,7 @@ export function signature(intent: Intent): Sig {
   const ch = sc.channels;
   const busName = (id: string) => sc.buses.find((b) => b.id === id)?.name ?? id;
   const count = new Map<string, number>();
-  ch.forEach((c) => count.set(c.kind, (count.get(c.kind) ?? 0) + 1));
+  ch.forEach((c) => count.set(c.kind + (c.stereo ? "(st)" : ""), (count.get(c.kind + (c.stereo ? "(st)" : "")) ?? 0) + 1));
   return {
     channels: [...count].map(([k, n]) => `${k}×${n}`).sort(),
     mixes: uniq(sc.mixes.monitors.map((m) => `${m.role}${m.iem ? "(iem)" : ""}`)),
@@ -45,15 +45,16 @@ export function signature(intent: Intent): Sig {
     ),
     pages: JSON.stringify(sc.pages),
     // Explicit layout and routing (named channels, reserved gaps, buses, groups, mains, matrices).
-    layout: intent.channels.length ? ch.map((c) => `${c.ch}:${c.label}:${c.kind}`) : [],
+    layout: intent.channels.length ? ch.map((c) => `${c.ch}:${c.label}:${c.kind}${c.stereo ? ":st" : ""}`) : [],
     buses: sc.buses.map((b) => `${b.bus}:${b.name}:${b.kind}:${b.mode}${b.iem ? ":iem" : ""}`),
     routing: uniq(ch.map((c) => `${c.label}:${c.toMain ? "main" : "-"}:${c.groups.map(busName).join("+")}`)),
     mains: JSON.stringify(sc.mains),
     matrices: JSON.stringify(sc.matrices),
+    record: JSON.stringify(sc.record),
   };
 }
 
-export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages", "layout", "buses", "routing", "mains", "matrices"];
+export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages", "layout", "buses", "routing", "mains", "matrices", "record"];
 
 export function score(c: EvalCase, got: Intent | null) {
   const want = signature(IntentSchema.parse({ monitors: [], fx: [], stream: false, ...c.expect }));

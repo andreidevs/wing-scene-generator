@@ -9,7 +9,9 @@ import type { IntentSchema } from "../lib/intent";
 type In = z.input<typeof IntentSchema>;
 type Mix = NonNullable<In["monitors"]>[number];
 
-const s = (o: Record<string, number>) => Object.entries(o).map(([kind, count]) => ({ kind, count })) as In["sources"];
+// "keys(st)": 1 = one stereo keys channel.
+const s = (o: Record<string, number>) =>
+  Object.entries(o).map(([k, count]) => ({ kind: k.replace("(st)", ""), count, stereo: k.endsWith("(st)") })) as In["sources"];
 const mon = (m: Mix["for"], contains: Mix["contains"] = [], iem = false): Mix => ({ for: m, contains, iem });
 
 // Unset fields mean "nothing of that": no mixes, no FX, no stream, no levels…
@@ -42,7 +44,7 @@ export const CASES: EvalCase[] = [
     id: "cover-iem",
     text: "Кавер-группа: полная ударка, бас, гитара, клавиши стерео, 2 вокала, плейбэк стерео, клик. Всем ушные мониторы.",
     expect: {
-      sources: s({ kick: 1, snare: 1, hihat: 1, tom: 3, overhead: 2, bass: 1, e_guitar: 1, keys: 2, vocal: 2, playback: 2, click: 1 }),
+      sources: s({ kick: 1, snare: 1, hihat: 1, tom: 3, overhead: 2, bass: 1, e_guitar: 1, "keys(st)": 1, vocal: 2, "playback(st)": 1, click: 1 }),
       monitors: [mon("drummer", [], true), mon("bass", [], true), mon("guitar", [], true), mon("keys", [], true), mon("vocals", [], true)],
     },
   },
@@ -141,7 +143,7 @@ export const CASES: EvalCase[] = [
     id: "band-en",
     text: "Band setup: kick, snare, hi-hat, 2 toms, overheads, bass, two electric guitars, keys in stereo, three vocals. In-ear mixes for everyone. Stream to YouTube.",
     expect: {
-      sources: s({ kick: 1, snare: 1, hihat: 1, tom: 2, overhead: 2, bass: 1, e_guitar: 2, keys: 2, vocal: 3 }),
+      sources: s({ kick: 1, snare: 1, hihat: 1, tom: 2, overhead: 2, bass: 1, e_guitar: 2, "keys(st)": 1, vocal: 3 }),
       monitors: [mon("drummer", [], true), mon("bass", [], true), mon("guitar", [], true), mon("keys", [], true), mon("vocals", [], true)],
       stream: true,
     },
@@ -164,7 +166,7 @@ export const CASES: EvalCase[] = [
   {
     id: "dj-mc",
     text: "DJ-пульт стерео и микрофон для MC.",
-    expect: { sources: s({ dj: 2, speech: 1 }) },
+    expect: { sources: s({ "dj(st)": 1, speech: 1 }) },
   },
   {
     id: "drummer-level",
@@ -205,7 +207,7 @@ export const CASES: EvalCase[] = [
   {
     id: "electronic",
     text: "Электронный сет: драм-машина стерео, синтезатор стерео, ноутбук стерео, вокал с дилеем.",
-    expect: { sources: s({ sampler: 2, keys: 2, playback: 2, vocal: 1 }), fx: ["delay"] },
+    expect: { sources: s({ "sampler(st)": 1, "keys(st)": 1, "playback(st)": 1, vocal: 1 }), fx: ["delay"] },
   },
   {
     id: "stream-only",
@@ -250,7 +252,7 @@ export const CASES_HOLDOUT: EvalCase[] = [
   {
     id: "h-hosts",
     text: "Нужны 2 радика ведущим, видео с ноутбука в стерео, трансляция.",
-    expect: { sources: s({ speech: 2, playback: 2 }), stream: true },
+    expect: { sources: s({ speech: 2, "playback(st)": 1 }), stream: true },
   },
   {
     id: "h-band-iem",
@@ -273,7 +275,7 @@ export const CASES_HOLDOUT: EvalCase[] = [
   {
     id: "h-di-mic",
     text: "Электрогитара в стерео с двух комбиков, бас DI плюс микрофон.",
-    expect: { sources: s({ e_guitar: 2, bass: 2 }) },
+    expect: { sources: s({ "e_guitar(st)": 1, bass: 2 }) },
   },
   {
     id: "h-host-singer",
@@ -325,7 +327,7 @@ export const CASES_HOLDOUT: EvalCase[] = [
     id: "h-en-detailed",
     text: "Kick in and out, snare top and bottom, 3 toms, OH pair, bass DI, 2 guitars, keys L/R, 4 vox, IEM for all.",
     expect: {
-      sources: s({ kick: 2, snare: 2, tom: 3, overhead: 2, bass: 1, e_guitar: 2, keys: 2, vocal: 4 }),
+      sources: s({ kick: 2, snare: 2, tom: 3, overhead: 2, bass: 1, e_guitar: 2, "keys(st)": 1, vocal: 4 }),
       monitors: [mon("drummer", [], true), mon("bass", [], true), mon("guitar", [], true), mon("keys", [], true), mon("vocals", [], true)],
     },
   },
@@ -333,7 +335,8 @@ export const CASES_HOLDOUT: EvalCase[] = [
 
 // Detailed layout requests (named channels, reserved gaps, named in-ear mixes, groups, mains, matrix).
 // Beyond the rule parser; measured for the LLM only (npm run eval -- --advanced …).
-export const USER_TEST_TEXT = `Первые 8 каналов резервируем под микрофоны будут называться Mic1 - 7 и Speaker
+export const USER_TEST_TEXT = `Сцена под WING Rack
+Первые 8 каналов резервируем под микрофоны будут называться Mic1 - 7 и Speaker
 Далее Бас Барабаны (стерео электронные) Аккустика Аккустика 2 Клавиши (стерео) Электрогитара (стерео)
 далее оставим место 2 канала
 и талкбэк
@@ -343,7 +346,9 @@ export const USER_TEST_TEXT = `Первые 8 каналов резервиру�
 Группа Вокала все вокалы кроме speaker идут сначала в эту группу потом в мастер
 Группа инстурментов так же идут все сначала сюда потом в мастер в Main1
 Vocal Reverb  и Delay постфедер для вокалов
-Матрица стрим`;
+Матрица стрим
+Подготовить выходы всех каналов на USB для записи
+Подготовить выходы всех каналов для записи на флешку во встроенном рекордере`;
 
 const iem = (name: string, own: string[] = []) => ({ name, iem: true, contains: ["all"], own });
 
@@ -383,6 +388,7 @@ export const USER_TEST_EXPECT: EvalCase["expect"] = {
   fx: ["vocal_reverb", "delay"],
   stream: true,
   streamVia: "matrix",
+  record: { usb: true, card: true },
 };
 
 export const CASES_ADVANCED: EvalCase[] = [{ id: "user-test", text: USER_TEST_TEXT, expect: USER_TEST_EXPECT }];

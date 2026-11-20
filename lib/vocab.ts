@@ -52,7 +52,7 @@ export const MIC_WORDS = "микрофон\\p{L}*|мик(?:а|и|ов)?|mics?|mi
 export const PAIR_KINDS: Src[] = ["overhead"];
 // "полная ударка": kick, snare, hat, 3 toms, 2 OH.
 export const FULL_KIT_WORDS = "полн\\p{L}*\\s+(?:ударк\\p{L}*|ударн\\p{L}*|барабан\\p{L}*|установк\\p{L}*|кит\\p{L}*)|full\\s+(?:drum\\s?)?kit";
-// "клавиши стерео" → 2 channels for stereo-capable sources (STEREO_KINDS in presets).
+// "клавиши стерео" → one stereo channel for stereo-capable sources (STEREO_KINDS in presets).
 export const STEREO_WORDS = "стерео|stereo|l\\s?/\\s?r|лево-?право|в\\s+стерео";
 
 // ---------------------------------------------------------------- monitors
@@ -119,6 +119,10 @@ export const ACTION_WORDS = {
   mute: "замьют\\p{L}*|м[ьу]ют\\p{L}*|заглуш\\p{L}*|закр(?:ыт|ой)\\p{L}*|mute",
   except: "кроме|except|but",
   all: "вс[её]|все\\p{L}*|ничего|all|everything|everyone",
+  // Multitrack recording: "выходы всех каналов на usb для записи", "запись на флешку / sd / wing-live".
+  record: "запис\\p{L}*|record\\p{L}*|мультитрек\\p{L}*|multi-?track\\p{L}*|виртуальн\\p{L}*\\s+саундчек\\p{L}*|virtual\\s+soundcheck",
+  recordUsb: "usb|юсб|daw|компьютер\\p{L}*|reaper|cubase|ableton",
+  recordCard: "флешк\\p{L}*|sd|карт[уеаы]|wing-?live|рекордер\\p{L}*|recorder",
   streamOff: "без\\s+стрим\\p{L}*|стрим\\p{L}*\\s+не\\s+нуж\\p{L}*|no\\s+stream",
   stream: "стрим\\p{L}*|трансляц\\p{L}*|эфир\\p{L}*|stream\\p{L}*|broadcast|запис\\p{L}*|recording|youtube|ютуб\\p{L}*|twitch|онлайн",
   monitor: "монитор\\p{L}*|ушн\\p{L}*|in-?ears?|iem|wedges?|мониторн\\p{L}*|прослушк\\p{L}*",
@@ -140,7 +144,10 @@ export const ACTION_WORDS = {
 // ---------------------------------------------------------------- lineup templates
 // "сцена для рок-группы" → this lineup, used only when the request names no instruments itself.
 export type Template = { name: string; words: string; intent: Partial<Pick<Intent, "sources" | "monitors" | "fx" | "stream">> };
-const S = (list: [Src, number][]) => list.map(([kind, count]) => ({ kind, count }));
+// A pair of keys / playback / DJ is one stereo channel (WING ST input), not two mono ones.
+const ST_PAIRS: Src[] = ["keys", "playback", "dj"];
+const S = (list: [Src, number][]) =>
+  list.map(([kind, count]) => (ST_PAIRS.includes(kind) && count === 2 ? { kind, count: 1, stereo: true } : { kind, count, stereo: false }));
 const M = (mixes: Mix[], iem = false) => mixes.map((m) => ({ for: m, contains: [], iem }));
 export const TEMPLATES: Template[] = [
   { name: "Рок-группа", words: "рок-?групп\\p{L}*|рок-?бэнд\\p{L}*|rock\\s?band", intent: { sources: S([["kick", 1], ["snare", 1], ["hihat", 1], ["tom", 3], ["overhead", 2], ["bass", 1], ["e_guitar", 2], ["keys", 1], ["vocal", 1], ["backvocal", 2]]), monitors: M(["vocals", "drummer", "bass", "guitar", "keys"]), fx: ["vocal_reverb", "drum_reverb"] } },

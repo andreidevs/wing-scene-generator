@@ -1,31 +1,42 @@
 import type { BaselineReport } from "./baseline";
+import { CONSOLES } from "./presets";
 import type { Scene } from "./scene";
-import { describe, type DiffSummary } from "./wing";
+import { describe, recordTracks, type BaselineSnap, type DiffSummary } from "./wing";
 
 export function buildReport(opts: {
   baselineName: string;
   baseline: BaselineReport;
+  snap: BaselineSnap; // parsed baseline, for the recording track list
   scene: Scene;
   summary: DiffSummary;
   conn: Record<number, string>; // channel → baseline input, e.g. "LCL5"
   generatedAt: Date;
 }): string {
-  const { baselineName, baseline, scene, summary, conn, generatedAt } = opts;
+  const { baselineName, baseline, snap, scene, summary, conn, generatedAt } = opts;
   const L: string[] = [];
   L.push("# WING Scene Generator Report", "");
   L.push(`- Baseline: ${baselineName}`);
   L.push(`- Generated: ${generatedAt.toISOString().slice(0, 16).replace("T", " ")}`);
   L.push(`- Format: ${baseline.format ?? "?"}, ${baseline.creator ?? "?"} ${baseline.firmware ?? "?"}`);
   L.push(`- Channels: ${scene.channels.length}`);
+  L.push(`- Console: ${CONSOLES[scene.console].label} (${CONSOLES[scene.console].local} локальных входов, дальше AES50 A)`);
   L.push(`- Buses: ${scene.buses.map((b) => `Bus ${b.bus} ${b.name} (${b.mode})`).join(", ") || "—"}`);
   if (scene.mains.length) L.push(`- Mains: ${scene.mains.map((m) => `Main ${m.main} ${m.name}`).join(", ")}`);
   if (scene.matrices.length) L.push(`- Matrix: ${scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}`);
   L.push("");
   if (scene.text) L.push("## Запрос", "", `> ${scene.text}`, "");
 
-  L.push("## Patch list", "", "| CH | Имя | Вход (baseline) | Mute | Fader | DCA |", "|---|---|---|---|---|---|");
+  L.push("## Patch list", "", "| CH | Имя | Вход | Mute | Fader | DCA |", "|---|---|---|---|---|---|");
   for (const c of scene.channels) L.push(`| ${c.ch} | ${c.label} | ${conn[c.ch] ?? "?"} | ${c.mute ? "mute" : "open"} | ${c.fader} dB | ${c.dca ?? "—"} |`);
   L.push("");
+  const outs = [...(scene.record.usb ? ["USB"] : []), ...(scene.record.card ? ["CRD (WING-LIVE)"] : [])];
+  if (outs.length) {
+    const tracks = recordTracks(scene, snap);
+    L.push("## Запись", "", `Выходы ${outs.join(" и ")} 1…${tracks.length} — прямо со входов каналов (до обработки):`, "");
+    tracks.forEach((t, k) => L.push(`- ${k + 1}: ${t.grp}${t.in} — ${t.label}`));
+    if (scene.record.card && tracks.length > 32) L.push("", `- ${tracks.length} дорожек: одна SD-карта WING-LIVE пишет 32, нужны обе карты.`);
+    L.push("");
+  }
   L.push("## Страницы", "");
   L.push("- Стандартные страницы «CH a-b» приведены к каналам a…b (L, C, R, Compact, Rack, WING Edit).");
   scene.pages.forEach((pg, k) =>

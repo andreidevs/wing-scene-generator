@@ -28,9 +28,9 @@ const Name = z.string().min(1).max(16); // WING name limit
 export const IntentSchema = z
   .object({
   // Simple lineup: kinds and counts, laid out by the code. Empty when `channels` gives an explicit layout.
-  sources: z.array(z.object({ kind: IntentSourceKind, count: z.number().int().min(1).max(16) })).default([]),
+  sources: z.array(z.object({ kind: IntentSourceKind, count: z.number().int().min(1).max(16), stereo: z.boolean().default(false) })).default([]),
   // Explicit layout, in console order: "первые 8 каналов Mic1-7 и Speaker, потом бас…, резерв 2 канала".
-  // label "Mic{n}" + count 7 → Mic1…Mic7; stereo → "Keys L"/"Keys R"; kind "reserve" = leave channels untouched.
+  // label "Mic{n}" + count 7 → Mic1…Mic7; stereo → one stereo channel (WING ST source); kind "reserve" = leave channels untouched.
   channels: z
     .array(
       z.object({
@@ -60,6 +60,8 @@ export const IntentSchema = z
   mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: Name })).default([]),
   // Stream as a bus with per-channel sends (default) or as a matrix fed from Main 1.
   streamVia: z.enum(["bus", "matrix"]).default("bus"),
+  // Multitrack recording: every channel's input to the USB outputs (DAW) and/or the WING-LIVE card (CRD, SD).
+  record: z.object({ usb: z.boolean().default(false), card: z.boolean().default(false) }).default({ usb: false, card: false }),
   monitors: z.array(
     z.object({
       for: z.enum(MONITOR_MIXES),

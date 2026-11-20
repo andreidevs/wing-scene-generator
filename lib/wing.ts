@@ -3,7 +3,7 @@ import { FX_TEMPLATES } from "./fx-templates";
 import { layerPlan, pageStrips, type Layers } from "./layers";
 import { cloneNode, fromValue, getNode, parseOrdered, replaceNode, serialize, toValue } from "./ordered-json";
 import {
-  CHANNEL_PRESETS, COLORS, DCA_COLORS, DCA_GROUPS, DCA_ICONS, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
+  CHANNEL_PRESETS, COLORS, CONSOLES, DCA_COLORS, DCA_GROUPS, DCA_ICONS, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
   type ChannelPreset, type ColorId,
 } from "./presets";
 import { sendLevelOf, type Scene } from "./scene";
@@ -15,7 +15,7 @@ export const WING_COLOR = Object.fromEntries(COLORS.map((c, i) => [c, i + 1])) a
 
 // ---------- allowlist: path template → value schema + diff group ----------
 
-export type Kind = "Имена" | "Цвета" | "Иконки" | "HPF" | "Gate" | "Компрессоры" | "Mute" | "Посылы" | "Фейдеры" | "DCA" | "Шины" | "FX" | "Страницы";
+export type Kind = "Входы" | "Запись" | "Имена" | "Цвета" | "Иконки" | "HPF" | "Gate" | "Компрессоры" | "Mute" | "Посылы" | "Фейдеры" | "DCA" | "Шины" | "FX" | "Страницы";
 
 const PH: Record<string, string> = {
   ch: "([1-9]|[1-3]\\d|40)",
@@ -27,15 +27,30 @@ const PH: Record<string, string> = {
   sec: "(L|C|R|CMPCT|RCK|EXT|VRT|WEDIT)",
   pg: "\\d{1,2}",
   slot: "\\d{1,2}",
+  grp: "(LCL|AUX|A|B|C|SC|USB|CRD|MOD|PLAY|AES|USR)",
+  inp: "([1-9]|[1-5]\\d|6[0-4])",
+  usb: "([1-9]|[1-3]\\d|4[0-8])",
+  crd: "([1-9]|[1-5]\\d|6[0-4])",
 };
-const COUNTS: Record<string, number> = { ch: 40, bus: 16, dca: 16, main: 4, fx8: 8, mx: 8 };
+const COUNTS: Record<string, number> = { usb: 48, crd: 64, ch: 40, bus: 16, dca: 16, main: 4, fx8: 8, mx: 8 };
 
 const col = z.number().int().min(1).max(18);
 const db = z.number().min(-144).max(10);
 const icon = z.number().int().min(0).max(999);
 const fxTemplates = Object.values(FX_TEMPLATES).map((t) => JSON.stringify(JSON.parse(t)));
 
+const INPUT_GRP = z.enum(["LCL", "AUX", "A", "B", "C", "SC", "USB", "CRD", "MOD", "PLAY", "AES", "USR"]);
+
 const RULES: { tpl: string; schema: z.ZodType; kind: Kind }[] = [
+  // Input patch + source mode, laid out per console model (see inputPatch).
+  { tpl: "ch/{ch}/in/conn/grp", schema: INPUT_GRP, kind: "Входы" },
+  { tpl: "ch/{ch}/in/conn/in", schema: z.number().int().min(1).max(64), kind: "Входы" },
+  { tpl: "io/in/{grp}/{inp}/mode", schema: z.enum(["M", "ST"]), kind: "Входы" },
+  // Recording outputs: USB (DAW) and the WING-LIVE card, fed straight from the channel inputs.
+  { tpl: "io/out/USB/{usb}/grp", schema: INPUT_GRP, kind: "Запись" },
+  { tpl: "io/out/USB/{usb}/in", schema: z.number().int().min(1).max(64), kind: "Запись" },
+  { tpl: "io/out/CRD/{crd}/grp", schema: INPUT_GRP, kind: "Запись" },
+  { tpl: "io/out/CRD/{crd}/in", schema: z.number().int().min(1).max(64), kind: "Запись" },
   { tpl: "ch/{ch}/name", schema: z.string().min(1).max(16), kind: "Имена" },
   // clink=true: strip shows the *source* name/color (clean base default); false: its own. Verified
   // on show-working.snap: clink=true channels show the source name, clink=false keep their own.
@@ -98,7 +113,8 @@ export function allowedPaths(): string[] {
     return Array.from({ length: COUNTS[m[1]] }, (_, i) => expand(tpl.replace(m[0], String(i + 1)))).flat();
   };
   // Page slots vary per section, so they are checked when patched, not up front.
-  return RULES.filter((r) => !r.tpl.startsWith("ce_data/")).flatMap((r) => expand(r.tpl));
+  // Page slots vary per section and input groups per console, so those are checked when patched.
+  return RULES.filter((r) => !r.tpl.startsWith("ce_data/") && !r.tpl.includes("{grp}")).flatMap((r) => expand(r.tpl));
 }
 
 // ---------- compile: scene → patches ----------
@@ -114,7 +130,81 @@ function withDca(tags: string, dca: number | null): string {
   return [...(dca ? [`#D${dca}`] : []), ...rest].join(",");
 }
 
-export type BaselineSnap = { ae_data: { ch: Record<string, { tags: string }> }; ce_data?: { layer?: Layers } };
+export type BaselineSnap = {
+  ae_data: { ch: Record<string, { tags: string; in?: { conn: { grp: string; in: number } } }>; io?: { in: Record<string, Record<string, unknown>> } };
+  ce_data?: { layer?: Layers };
+};
+
+// Inputs follow the channel order on the chosen console: local inputs first (WING 8, Rack/Compact 24),
+// then the AES50 A stage box. WING stereo lives on the source, not the channel: an ST input pair (always
+// odd/even, e.g. LCL 11/12) feeds one channel connected to the odd input. CH 1…last scene channel are patched,
+// reserved ones too (they keep an input for later). A baseline whose CH 1 is not on LCL keeps its group.
+export type InputPatch = { channels: Map<number, { grp: string; in: number; stereo: boolean }>; modes: Map<string, ("M" | "ST")[]> };
+
+const AES50_SIZE = 48;
+
+// "LCL11/12" per channel: the patch the build will write, else the baseline's.
+export function inputLabels(scene: Scene, base: BaselineSnap): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const [n, c] of Object.entries(base.ae_data.ch)) if (c.in) out[Number(n)] = `${c.in.conn.grp}${c.in.conn.in}`;
+  let patch: InputPatch | null = null;
+  try {
+    patch = inputPatch(scene, base);
+  } catch {
+    return out; // too many inputs: the build reports it
+  }
+  if (patch) for (const [n, i] of patch.channels) out[n] = `${i.grp}${i.in}${i.stereo ? `/${i.in + 1}` : ""}`;
+  return out;
+}
+
+// Recording tracks in channel order (CH 1…last scene channel, reserved ones too): each channel's input,
+// two tracks for a stereo pair. The same list goes to USB 1… and/or CRD 1….
+export function recordTracks(scene: Scene, base: BaselineSnap): { ch: number; label: string; grp: string; in: number }[] {
+  const patch = inputPatch(scene, base);
+  const labels = new Map(scene.channels.map((c) => [c.ch, c.label]));
+  const last = Math.max(0, ...scene.channels.map((c) => c.ch));
+  const tracks: { ch: number; label: string; grp: string; in: number }[] = [];
+  for (let n = 1; n <= last; n++) {
+    const p = patch?.channels.get(n);
+    const conn = p ?? base.ae_data.ch[String(n)]?.in?.conn;
+    if (!conn || conn.grp === "OFF") continue;
+    const label = labels.get(n) ?? `CH ${n}`;
+    if (p?.stereo) tracks.push({ ch: n, label: `${label} L`, grp: p.grp, in: p.in }, { ch: n, label: `${label} R`, grp: p.grp, in: p.in + 1 });
+    else tracks.push({ ch: n, label, grp: conn.grp, in: conn.in });
+  }
+  return tracks;
+}
+
+export function inputPatch(scene: Scene, base: BaselineSnap): InputPatch | null {
+  const first = base.ae_data.ch["1"]?.in?.conn.grp;
+  if (!first || first === "OFF" || !scene.channels.length) return null; // ponytail: unpatched baseline → inputs stay manual
+  const size = (g: string) => Object.keys(base.ae_data.io?.in[g] ?? {}).length;
+  const groups: [string, number][] =
+    first === "LCL" ? [["LCL", Math.min(CONSOLES[scene.console].local, size("LCL"))], ["A", Math.min(AES50_SIZE, size("A"))]] : [[first, size(first)]];
+  const stereo = new Set(scene.channels.filter((c) => c.stereo).map((c) => c.ch));
+  const last = Math.max(...scene.channels.map((c) => c.ch));
+  const channels: InputPatch["channels"] = new Map();
+  const modes: InputPatch["modes"] = new Map(groups.map(([g]) => [g, []])); // modes.get(g)[k-1] = mode of input k
+  let gi = 0;
+  for (let n = 1; n <= last; n++) {
+    const st = stereo.has(n);
+    for (;;) {
+      if (gi >= groups.length) throw new Error(`Не хватает входов: ${groups.map(([g, k]) => `${g} ${k}`).join(" + ")} на ${CONSOLES[scene.console].label}`);
+      const [g, cap] = groups[gi];
+      const m = modes.get(g)!;
+      const at = m.length + 1 + (st && m.length % 2 === 1 ? 1 : 0); // pairs start on an odd input
+      if (at + (st ? 1 : 0) > cap) {
+        gi++;
+        continue;
+      }
+      if (at > m.length + 1) m.push("M"); // the skipped even input stays free
+      channels.set(n, { grp: g, in: at, stereo: st });
+      m.push(...(st ? (["ST", "ST"] as const) : (["M"] as const)));
+      break;
+    }
+  }
+  return { channels, modes };
+}
 
 const segsOf = (path: string) => (path.startsWith("ce_data/") ? path.split("/") : ["ae_data", ...path.split("/")]);
 
@@ -124,6 +214,26 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   const p: Patch[] = [];
   const set = (path: string, value: Patch["value"]) => p.push({ op: "set", path, value });
   const buses = scene.buses;
+
+  const inputs = inputPatch(scene, base);
+  if (inputs) {
+    for (const [n, i] of inputs.channels) {
+      set(`ch/${n}/in/conn/grp`, i.grp);
+      set(`ch/${n}/in/conn/in`, i.in);
+    }
+    for (const [g, m] of inputs.modes) m.forEach((mode, k) => set(`io/in/${g}/${k + 1}/mode`, mode));
+  }
+  const targets = [...(scene.record.usb ? [["USB", 48]] : []), ...(scene.record.card ? [["CRD", 64]] : [])] as [string, number][];
+  if (targets.length) {
+    const tracks = recordTracks(scene, base);
+    for (const [out, size] of targets) {
+      if (tracks.length > size) throw new Error(`На запись ${tracks.length} дорожек, а выходов ${out} только ${size}`);
+      tracks.forEach((t, k) => {
+        set(`io/out/${out}/${k + 1}/grp`, t.grp);
+        set(`io/out/${out}/${k + 1}/in`, t.in);
+      });
+    }
+  }
 
   for (const b of buses) {
     set(`bus/${b.bus}/name`, b.name);
@@ -257,7 +367,8 @@ export function diff(beforeRaw: string, afterRaw: string): DiffEntry[] {
 
 // Guard counters: things the generator must never change. Computed from the real diff.
 const GUARDS: { label: string; re: RegExp }[] = [
-  { label: "Routing", re: /^ae_data\/(io\/out\/|ch\/\d+\/in\/conn\/)/ },
+  // Outputs and alt inputs. The main input patch is allowlisted ("Входы") for stereo pairs only.
+  { label: "Routing", re: /^ae_data\/(io\/out\/(?!(?:USB|CRD)\/\d+\/(?:grp|in)$)|ch\/\d+\/in\/conn\/alt)/ },
   { label: "Gain", re: /^ae_data\/(io\/in\/[^/]+\/\d+\/g$|ch\/\d+\/in\/set\/trim$)/ },
   { label: "Phantom", re: /^ae_data\/io\/in\/[^/]+\/\d+\/vph$/ },
   // Main processing/fader/mute/output; names and the Main → Matrix send are allowlisted on purpose.

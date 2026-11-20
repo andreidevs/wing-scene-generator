@@ -4,7 +4,7 @@ import { EXAMPLE_TEXT } from "./example";
 import { parseRequest } from "./parse";
 import { expand } from "./scene";
 
-const kinds = (i: ReturnType<typeof parseRequest>["intent"]) => Object.fromEntries(i.sources.map((s) => [s.kind, s.count]));
+const kinds = (i: ReturnType<typeof parseRequest>["intent"]) => Object.fromEntries(i.sources.map((s) => [s.kind + (s.stereo ? "(st)" : ""), s.count]));
 const mix = (i: ReturnType<typeof parseRequest>["intent"], m: string) => i.monitors.find((x) => x.for === m)?.contains;
 
 test("ТЗ text parses to the same scene as the hand-written example intent", () => {
@@ -86,7 +86,7 @@ const SOURCE_CASES: [string, Record<string, number>][] = [
   ["укулеле, мандолина, банджо", { ac_guitar: 3 }],
   ["spd, драм-машина", { sampler: 2 }],
   ["2 микрофона на зал", { ambience: 2 }],
-  ["клавиши стерео, плейбэк стерео", { keys: 2, playback: 2 }],
+  ["клавиши стерео, плейбэк стерео", { "keys(st)": 1, "playback(st)": 1 }],
   ["полная ударка, бас", { kick: 1, snare: 1, hihat: 1, tom: 3, overhead: 2, bass: 1 }],
   ["солист, 2 бэка, подпевка", { vocal: 1, backvocal: 3 }],
   ["басуха, электруха, акустуха, клава", { bass: 1, e_guitar: 1, ac_guitar: 1, keys: 1 }],
@@ -175,7 +175,7 @@ test("lineup templates fill in only when no instruments are named", () => {
   assert.equal(rock.intent.stream, true);
   assert.ok(rock.intent.fx.includes("drum_reverb"));
   const conf = parseRequest("конференция");
-  assert.deepEqual(kinds(conf.intent), { speech: 4, playback: 2 });
+  assert.deepEqual(kinds(conf.intent), { speech: 4, "playback(st)": 1 });
   assert.equal(conf.intent.stream, true);
   const withAux = parseRequest("рок-группа, 2 микрофона на зал, клик. Всем ушные мониторы");
   assert.equal(withAux.template, "Рок-группа", "ambience/click do not cancel the template");

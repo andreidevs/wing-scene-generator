@@ -3,18 +3,19 @@ import { IntentSchema, SOURCE_KINDS, SourceKind, type Intent } from "./intent";
 import {
   BUS_LAYOUT, CHANNEL_PRESETS, COLORS, DCA_GROUPS, DEFAULT_LEVEL_DB, DRUM_KINDS, DRUM_KIT, FX_ROLE, FX_ROLES, IEM_ICON, LAYOUT_ORDER,
   MAX_CHANNELS, MONITOR_ROLE, MONITOR_ROLES,
-  type BusRole, type ChannelPreset, type ColorId, type DcaGroup, type MonitorRole,
+  type BusRole, type ChannelPreset, type ColorId, type ConsoleModel, type DcaGroup, type MonitorRole,
 } from "./presets";
 
 const MonitorRoleSchema = z.enum(MONITOR_ROLES);
 const FxRoleSchema = z.enum(FX_ROLES);
-const EDITABLE = ["label", "color", "hpf", "comp", "gate", "mute", "fader", "monitorSends", "fxSends", "stream", "sendLevel", "dca", "groups", "toMain"] as const;
+const EDITABLE = ["label", "stereo", "color", "hpf", "comp", "gate", "mute", "fader", "monitorSends", "fxSends", "stream", "sendLevel", "dca", "groups", "toMain"] as const;
 const Db = z.number().min(-144).max(10); // WING fader / send range
 
 export const ChannelDraftSchema = z.object({
   ch: z.number().int().min(1).max(MAX_CHANNELS), // WING channel number, 1-based
   kind: SourceKind,
   label: z.string().min(1).max(32),
+  stereo: z.boolean().default(false), // one channel on a stereo (ST) input pair
   color: z.enum(COLORS),
   hpf: z.number().min(20).max(2000), // WING low cut range
   comp: z.boolean(),
@@ -77,24 +78,27 @@ export const SceneSchema = z.object({
   buses: z.array(BusDefSchema).max(16).default([]),
   mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: z.string().min(1).max(16) })).default([]),
   matrices: z.array(z.object({ mtx: z.number().int().min(1).max(8), name: z.string().min(1).max(16), from: z.number().int().min(1).max(4) })).default([]),
+  record: z.object({ usb: z.boolean(), card: z.boolean() }).default({ usb: false, card: false }),
+  console: z.enum(["rack", "compact", "wing"]).default("rack"), // decides how many local inputs there are
   pages: z.array(PageSpecSchema).max(2), // empty = standard pages only
 });
 export type Scene = z.infer<typeof SceneSchema>;
 
 // ---------------------------------------------------------------- channels
 
-type Slot = { kind: SourceKind; label?: string } | null; // null = reserved channel, left untouched
+type Slot = { kind: SourceKind; label?: string; stereo?: boolean } | null; // null = reserved channel, left untouched
 
 function expandKinds(intent: Intent): Slot[] {
   const counts = new Map<SourceKind, number>();
+  const stereo = new Set(intent.sources.filter((s) => s.stereo).map((s) => s.kind));
   for (const s of intent.sources) {
     const parts = s.kind === "drum_kit" ? DRUM_KIT.map((d) => ({ ...d, count: d.count * s.count })) : [{ kind: s.kind, count: s.count }];
     for (const p of parts) counts.set(p.kind, (counts.get(p.kind) ?? 0) + p.count);
   }
-  return LAYOUT_ORDER.flatMap((kind) => Array.from({ length: counts.get(kind) ?? 0 }, () => ({ kind })));
+  return LAYOUT_ORDER.flatMap((kind) => Array.from({ length: counts.get(kind) ?? 0 }, () => ({ kind, stereo: stereo.has(kind) })));
 }
 
-// Explicit layout in the order given: "Mic{n}" ×7 → Mic1…Mic7, stereo → "Keys L"/"Keys R", reserve → gap.
+// Explicit layout in the order given: "Mic{n}" ×7 → Mic1…Mic7, stereo → one ST channel, reserve → gap.
 function explicitSlots(intent: Intent): Slot[] {
   const slots: Slot[] = [];
   for (const c of intent.channels) {
@@ -104,9 +108,7 @@ function explicitSlots(intent: Intent): Slot[] {
     }
     for (let i = 1; i <= c.count; i++) {
       const base = c.label === undefined ? undefined : c.label.includes("{n}") ? c.label.replace("{n}", String(i)) : c.count > 1 ? `${c.label} ${i}` : c.label;
-      // Stereo pairs are named "<name> L/R"; without a given name the preset one ("Keys L", "SPD R").
-      if (c.stereo) for (const side of ["L", "R"]) slots.push({ kind: c.kind, label: `${base ?? CHANNEL_PRESETS[c.kind].label} ${side}`.slice(0, 16) });
-      else slots.push({ kind: c.kind, label: base?.slice(0, 16) });
+      slots.push({ kind: c.kind, label: base?.slice(0, 16), stereo: c.stereo });
     }
   }
   return slots;
@@ -221,6 +223,15 @@ function roleBus(role: BusRole, iem: boolean): BusDraft {
   };
 }
 
+// "под wing rack" / "wing compact" / "полноразмерный wing" in the request picks the console; default Rack.
+export function consoleIn(text: string): ConsoleModel | null {
+  const t = text.toLowerCase();
+  if (/(?:wing|винг)[\s-]*(?:compact|компакт)/u.test(t)) return "compact";
+  if (/(?:wing|винг)[\s-]*(?:rack|р[эе]к(?!\p{L}))/u.test(t)) return "rack";
+  if (/(?:wing|винг)[\s-]*(?:full|фулл|полн\p{L}*)|(?:полноразмерн\p{L}*|большой)\s+(?:wing|винг)/u.test(t)) return "wing";
+  return null;
+}
+
 // ---------------------------------------------------------------- expand
 
 export function expand(intent: Intent, text = ""): Scene {
@@ -247,6 +258,7 @@ export function expand(intent: Intent, text = ""): Scene {
       kind,
       ...f,
       label,
+      stereo: slot.stereo ?? false,
       mute: muted(intent, kind),
       fader: DEFAULT_LEVEL_DB,
       sendLevel: {},
@@ -332,7 +344,7 @@ export function expand(intent: Intent, text = ""): Scene {
     sources: p.sources.flatMap((k) => (k === "all" ? ["all" as const] : expandContains([k]))),
   }));
   const matrices = intent.stream && intent.streamVia === "matrix" ? [{ mtx: 1, name: "Stream", from: 1 }] : [];
-  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, pages };
+  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, record: intent.record, console: consoleIn(text) ?? "rack", pages };
 }
 
 const kinds_all = (channels: ChannelDraft[]) => channels.map((c) => c.kind);
@@ -357,6 +369,7 @@ export function newChannel(scene: Scene, kind: SourceKind): ChannelDraft | null 
     kind,
     ...f,
     monitorSends: [...f.monitorSends, ...allMixes],
+    stereo: false,
     mute: true,
     fader: DEFAULT_LEVEL_DB,
     sendLevel: {},
