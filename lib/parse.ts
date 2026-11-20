@@ -5,10 +5,11 @@
 // Full reference: docs/parser.md.
 
 import { IntentSchema, MONITOR_MIXES, type Intent } from "./intent";
-import { DRUM_KINDS, FULL_DRUM_KIT, STEREO_KINDS } from "./presets";
+import { CHANNEL_PRESETS, DRUM_KINDS, FULL_DRUM_KIT, FX_ROLE, STEREO_KINDS } from "./presets";
+import type { SourceKind } from "./intent";
 import {
-  ACTION_WORDS, AUTO_WORDS, EVERYONE_WORDS, FAMILY_MIX, FULL_KIT_WORDS, FX_WORDS, IEM_WORDS, MIC_WORDS, NUM_WORDS,
-  PAIR_KINDS, RECIPIENT_WORDS, SOURCE_WORDS, STEREO_WORDS, TEMPLATES, UNSUPPORTED_WORDS, WEDGE_WORDS, type Template,
+  ACTION_WORDS, AUTO_WORDS, EVERYONE_WORDS, FAMILY_MIX, FULL_KIT_WORDS, FUZZY_STEMS, FX_WORDS, IEM_WORDS, MIC_WORDS, NUM_WORDS,
+  PAIR_KINDS, PAIR_PHRASE_WORDS, PER_PERFORMER_WORDS, RECIPIENT_WORDS, SOURCE_WORDS, STEREO_WORDS, TEMPLATES, UNSUPPORTED_WORDS, WEDGE_WORDS, type Template,
 } from "./vocab";
 
 type Src = Intent["sources"][number]["kind"];
@@ -21,6 +22,8 @@ const W = (body: string) => new RegExp(`(?<![\\p{L}\\d])(?:${body})(?![\\p{L}])`
 
 const SOURCES = SOURCE_WORDS.map(([k, p]) => [k, W(p)] as const);
 const MIC = W(MIC_WORDS);
+const PER_PERFORMER = W(PER_PERFORMER_WORDS);
+const PAIR_PHRASE = new RegExp(`^\\s*(?:${PAIR_PHRASE_WORDS})(?![\\p{L}])`, "iu");
 const FULL_KIT = W(FULL_KIT_WORDS);
 const STEREO = W(STEREO_WORDS);
 const RECIPIENT = MONITOR_MIXES.map((m) => [m, W(RECIPIENT_WORDS[m])] as const);
@@ -43,40 +46,106 @@ const has = (re: RegExp, s: string) => {
   return re.test(s);
 };
 
-// Source kinds mentioned in a clause, in order, each with the count written right before it.
-function sourcesIn(clause: string): { kind: Src; count: number; at: number }[] {
-  const found: { kind: Src; count: number; at: number }[] = [];
-  const stereo = has(STEREO, clause);
+type Hit = { kind: Src; at: number; end: number; text: string };
+
+// Every source mention in a clause. Specific patterns run first and their matches are blanked out,
+// so generic words don't re-match ("бас-гитара" is not also a "гитара").
+function hitsIn(clause: string): Hit[] {
+  const hits: Hit[] = [];
   let rest = clause;
   for (const [kind, re] of SOURCES) {
     re.lastIndex = 0;
-    const first = re.exec(rest);
-    if (!first) continue;
-    rest = rest.replace(re, (s) => " ".repeat(s.length)); // blank out so generic words don't re-match
-    const pair = PAIR_KINDS.includes(kind) && /(?:ы|и|s)$/u.test(first[0]) ? 2 : 1;
-    let count = countBefore(clause, first.index) ?? pair;
-    if (stereo && STEREO_KINDS.includes(kind as never) && count === 1) count = 2; // "клавиши стерео" → L/R
-    found.push({ kind, count, at: first.index });
+    let m: RegExpExecArray | null;
+    let found = false;
+    while ((m = re.exec(rest))) {
+      if (!m[0]) {
+        re.lastIndex++;
+        continue;
+      }
+      hits.push({ kind, at: m.index, end: m.index + m[0].length, text: m[0] });
+      found = true;
+    }
+    if (found) rest = rest.replace(re, (s) => " ".repeat(s.length));
   }
-  if (!found.length) {
+  if (!hits.length && !has(PER_PERFORMER, clause)) {
     MIC.lastIndex = 0;
     const m = MIC.exec(clause);
-    if (m) found.push({ kind: "vocal", count: countBefore(clause, m.index) ?? 1, at: m.index });
+    if (m) hits.push({ kind: "vocal", at: m.index, end: m.index + m[0].length, text: m[0] });
   }
-  return found.sort((a, b) => a.at - b.at);
+  if (!hits.length) hits.push(...fuzzyHits(clause));
+  return hits.sort((a, b) => a.at - b.at);
 }
 
-// Number in the ≤3 words before position `at` ("4 вокальных микрофона"), or "x4" right after the word.
-function countBefore(clause: string, at: number): number | null {
-  const before = clause.slice(0, at).split(/\s+/).filter(Boolean).slice(-3).join(" ");
+// Source kinds in a clause with counts. A count is a number written in the gap right before a mention
+// (≤3 words, not reaching back past the previous mention: "2 вокала и акустика" → 1 acoustic) or right
+// after it ("хор на 6 микрофонов", "вокал x4"). Several counted mentions of one kind add up
+// ("one lavalier and two handhelds" → 3); uncounted repeats don't ("ведущий с радиомикрофоном" → 1).
+type Found = { kind: Src; count: number; at: number; explicit: boolean; micOnly: boolean };
+
+function sourcesIn(clause: string): Found[] {
+  const hits = hitsIn(clause);
+  MIC.lastIndex = 0;
+  const micOnly = hits.length === 1 && hits[0].kind === "vocal" && MIC.test(hits[0].text);
+  const stereo = has(STEREO, clause);
+  const per = new Map<Src, { explicit: number; pair: boolean; at: number }>();
+  hits.forEach((h, i) => {
+    const gap = clause.slice(i ? hits[i - 1].end : 0, h.at);
+    const n = countIn(gap) ?? countAfter(clause.slice(h.end, hits[i + 1]?.at ?? clause.length));
+    const p = per.get(h.kind) ?? { explicit: 0, pair: false, at: h.at };
+    p.explicit += n ?? 0;
+    p.pair ||= PAIR_KINDS.includes(h.kind) && /(?:ы|и|s)$/u.test(h.text);
+    per.set(h.kind, p);
+  });
+  return [...per].map(([kind, p]) => {
+    let count = p.explicit || (p.pair ? 2 : 1);
+    if (!p.explicit && stereo && STEREO_KINDS.includes(kind as never)) count = 2; // "клавиши стерео" → L/R
+    return { kind, count: Math.min(count, 16), at: p.at, explicit: p.explicit > 0, micOnly };
+  });
+}
+
+function countIn(gap: string): number | null {
+  const words = gap.split(/\s+/).filter(Boolean).slice(-3).join(" ");
   let n: number | null = null;
   COUNT.lastIndex = 0;
-  for (let m; (m = COUNT.exec(before)); ) n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUM_WORDS[m[1]];
-  if (n === null) {
-    const after = /^\s*\p{L}*\s*[x×:]\s?(\d{1,2})/iu.exec(clause.slice(at));
-    if (after) n = Number(after[1]);
-  }
+  for (let m; (m = COUNT.exec(words)); ) n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUM_WORDS[m[1]];
   return n && n >= 1 && n <= 16 ? n : null;
+}
+
+function countAfter(tail: string): number | null {
+  if (PAIR_PHRASE.test(tail)) return 2; // "бочка внутрь и снаружи", "snare top and bottom", "OH pair"
+  // "x4", ": 4", "на 6 микрофонов", "— 2", or a bare number closing the clause ("вокал 2").
+  const m = /^\s*(?:[x×:]\s?|на\s+|—\s*)(\d{1,2})(?!\d)|^\s+(\d{1,2})\s*$/iu.exec(tail);
+  if (m && !m[1]) m[1] = m[2];
+  const n = m ? Number(m[1]) : null;
+  return n && n >= 1 && n <= 16 ? n : null;
+}
+
+// Typo tolerance for clauses that match nothing: "вакал" → vocal, "гетара" → guitar, "барабны" → drums.
+function lev(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function fuzzyHits(clause: string): Hit[] {
+  const hits: Hit[] = [];
+  for (const m of clause.matchAll(/\p{L}{3,}/gu)) {
+    const w = m[0];
+    let best: { kind: Src; score: number } | null = null;
+    for (const [kind, stem] of FUZZY_STEMS) {
+      if (w.length > stem.length + 4) continue;
+      // Short stems must match exactly ("басс" → бас), longer ones allow 1–2 typos ("барабны" → барабан).
+      const max = stem.length <= 3 ? 0 : stem.length <= 5 ? 1 : 2;
+      for (let k = stem.length - 1; k <= stem.length + 1; k++) {
+        const d = lev(w.slice(0, k), stem);
+        const score = d / stem.length; // relative distance: a long stem with 2 typos beats a short one with 1
+        if (d <= max && (!best || score < best.score)) best = { kind, score };
+      }
+    }
+    if (best) hits.push({ kind: best.kind, at: m.index!, end: m.index! + w.length, text: w });
+  }
+  return hits;
 }
 
 function levelOf(clause: string): number | null {
@@ -94,6 +163,8 @@ function levelOf(clause: string): number | null {
 }
 
 const AUX_KINDS: Src[] = ["ambience", "click", "talkback"];
+const KIT_PIECES: Src[] = ["kick", "snare", "overhead"]; // what "барабаны" (drum_kit) expands to
+const ALIASES: [Src, Src][] = [["accordion", "harmonica"]]; // "гармошка": accordion unless a harmonica is listed
 const isDrum = (k: Src) => k === "drum_kit" || DRUM_KINDS.includes(k as never);
 
 export type ParseResult = { intent: Intent; unknown: string[]; manual: string[]; template: string | null };
@@ -111,6 +182,8 @@ export function parseRequest(text: string): ParseResult {
   const manual = new Set<string>();
   let stream: boolean | null = null;
   let lastMix: Mix | null = null;
+  let lastSource: { kind: Src; explicit: boolean } | null = null;
+  const fxMentioned = new Set<Src>();
   let template: Template | null = null;
   let everyone: { iem: boolean | null } | null = null;
   let iemAll = false;
@@ -188,7 +261,12 @@ export function parseRequest(text: string): ParseResult {
               ? "stream"
               : "fader";
       levels.push({ sources: who(), target, db });
-      for (const r of recipients) kinds.forEach((k) => mix(r).set.add(k)); // a level in a mix implies the source is in it
+      for (const r of recipients) {
+        kinds.forEach((k) => mix(r).set.add(k)); // a level in a mix implies the source is in it
+        if (iemWord) mix(r).iem = true; // "барабанщику в уши клик погромче"
+      }
+      if (target === "stream") stream = true; // "всё в стрим -6" also asks for the stream
+      if (target === "delay" || target === "vocal_reverb" || target === "drum_reverb") fx.add(target); // a level in an FX implies the FX
       continue;
     }
 
@@ -212,20 +290,25 @@ export function parseRequest(text: string): ParseResult {
     }
     const reverb = has(REVERB, clause);
     const delay = has(DELAY, clause);
-    if (reverb || delay) {
+    if ((reverb || delay) && has(RE.off, clause)) {
+      understood = true; // "без реверба" — nothing to add
+    } else if (reverb || delay) {
       const drums = kinds.filter(isDrum);
       const other = kinds.filter((k) => !isDrum(k));
       if (reverb && drums.length) fx.add("drum_reverb");
       if (reverb && (other.length || !drums.length)) fx.add("vocal_reverb");
       if (delay) fx.add("delay");
       // Named non-kit sources get the send even if their preset has none ("реверб на гитару").
-      const named = kinds.filter((k) => k !== "drum_kit");
-      if (named.length) {
-        const sendTo: NonNullable<Setting["sendTo"]> = [];
-        if (delay) sendTo.push("delay");
-        if (reverb && other.length) sendTo.push("vocal_reverb");
-        if (reverb && named.some(isDrum)) sendTo.push("drum_reverb");
-        if (sendTo.length) settings.push({ sources: named, sendTo });
+      kinds.forEach((k) => fxMentioned.add(k)); // "вокал с дилеем" — the vocal exists even if listed nowhere else
+      // Only sources whose preset doesn't already feed that effect ("реверб на вокал" adds nothing).
+      const wanted: [NonNullable<Setting["sendTo"]>[number], Src[]][] = [
+        ["delay", delay ? kinds : []],
+        ["vocal_reverb", reverb ? other : []],
+        ["drum_reverb", reverb ? drums : []],
+      ];
+      for (const [fxKind, list] of wanted) {
+        const extra = list.filter((k) => k !== "drum_kit" && !(CHANNEL_PRESETS[k as SourceKind].fx as string[]).includes(FX_ROLE[fxKind]));
+        if (extra.length) settings.push({ sources: extra, sendTo: [fxKind] });
       }
       understood = true;
     }
@@ -270,12 +353,21 @@ export function parseRequest(text: string): ParseResult {
     }
 
     // 9. Things the generator does anyway ("подпиши каналы", "назначь цвета").
-    if (!kinds.length && !fullKit && has(AUTO, clause)) continue;
+    if (!kinds.length && !fullKit && (has(AUTO, clause) || has(PER_PERFORMER, clause))) continue;
 
     // 10. Source list.
     if (fullKit) for (const p of FULL_DRUM_KIT) sources.set(p.kind, (sources.get(p.kind) ?? 0) + p.count);
+    // "Хор из 12 человек, ставим 4 микрофона": a bare mic count right after an uncounted source is its count.
+    const mics = srcs.length === 1 && srcs[0].micOnly && srcs[0].explicit ? srcs[0] : null;
+    if (mics && lastSource && !lastSource.explicit) {
+      sources.set(lastSource.kind, (sources.get(lastSource.kind) ?? 0) - 1 + mics.count);
+      lastSource = { kind: lastSource.kind, explicit: true };
+      continue;
+    }
     if (srcs.length || fullKit) {
       for (const s of srcs) sources.set(s.kind, (sources.get(s.kind) ?? 0) + s.count);
+      const last = srcs[srcs.length - 1];
+      lastSource = last ? { kind: last.kind, explicit: last.explicit } : null;
       continue;
     }
     unknown.push(clause);
@@ -290,6 +382,33 @@ export function parseRequest(text: string): ParseResult {
     if (!fx.size) usedTemplate.intent.fx?.forEach((f) => fx.add(f));
     if (stream === null && usedTemplate.intent.stream) stream = true;
   }
+
+  // "Ударка: бочка, рабочий, хэт…" — the generic kit word just introduces the list of pieces.
+  if (sources.has("drum_kit") && (sources.has("kick") || sources.has("snare"))) sources.delete("drum_kit");
+
+  const present = (k: Src) =>
+    sources.has(k) ||
+    (sources.has("drum_kit") && KIT_PIECES.includes(k)) ||
+    (k === "drum_kit" && DRUM_KINDS.some((d) => sources.has(d))); // "реверб на барабаны" when pieces are listed
+  // Ambiguous short names refer to what is on stage: "гармошка" is the harmonica if one is listed.
+  for (const [from, to] of ALIASES) {
+    if (present(from) || !present(to)) continue;
+    const swap = <T,>(list: T[]) => list.map((k) => (k === from ? to : k)) as T[];
+    settings.forEach((s) => (s.sources = swap(s.sources)));
+    levels.forEach((l) => (l.sources = swap(l.sources)));
+    for (const set of [unmute, mute, fxMentioned, ...[...monitors.values()].map((m) => m.set)]) if (set.delete(from)) set.add(to);
+  }
+
+  // Sources referenced only by an action ("вокал с дилеем", "гитару погромче") exist too.
+  const referenced = [
+    ...settings.flatMap((s) => s.sources),
+    ...levels.flatMap((l) => l.sources),
+    ...unmute,
+    ...mute,
+    ...[...monitors.values()].flatMap((m) => [...m.set]),
+    ...fxMentioned,
+  ].filter((k): k is Src => k !== "all");
+  for (const k of referenced) if (!present(k)) sources.set(k, 1);
 
   // "мониторы всем": one mix per musician family present.
   if (everyone) {

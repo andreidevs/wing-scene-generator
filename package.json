@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "tsx --test lib/*.test.ts",
     "inspect": "tsx scripts/inspect-snap.ts",
-    "example": "tsx scripts/build-example.ts"
+    "example": "tsx scripts/build-example.ts",
+    "eval": "tsx scripts/eval-llm.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

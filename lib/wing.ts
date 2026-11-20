@@ -3,7 +3,7 @@ import { FX_TEMPLATES } from "./fx-templates";
 import { layerPlan, pageStrips, type Layers } from "./layers";
 import { cloneNode, fromValue, getNode, parseOrdered, replaceNode, serialize, toValue } from "./ordered-json";
 import {
-  BUS_LAYOUT, CHANNEL_PRESETS, DCA_COLORS, DCA_GROUPS, DCA_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
+  BUS_LAYOUT, CHANNEL_PRESETS, COLORS, DCA_COLORS, DCA_GROUPS, DCA_ICONS, IEM_ICON, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
   type BusRole, type ChannelPreset, type ColorId,
 } from "./presets";
 import type { Scene } from "./scene";
@@ -11,9 +11,7 @@ import type { Scene } from "./scene";
 // WING palette, indexes 1..12 (WING Remote Protocols, Appendix "WING Colors"):
 // 1 gray blue, 2 medium blue, 3 dark blue, 4 turquoise, 5 green, 6 olive green,
 // 7 yellow, 8 orange, 9 red, 10 coral, 11 pink, 12 mauve. FW 3.3 files also contain 13..18.
-export const WING_COLOR: Record<ColorId, number> = {
-  gray: 1, blue: 2, cyan: 4, green: 5, yellow: 7, orange: 8, red: 9, pink: 11, purple: 12,
-};
+export const WING_COLOR = Object.fromEntries(COLORS.map((c, i) => [c, i + 1])) as Record<ColorId, number>;
 
 // ---------- allowlist: path template → value schema + diff group ----------
 
@@ -133,7 +131,8 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
     const ears = iem.has(role);
     set(`bus/${b.bus}/name`, ears ? b.name.replace(/^MON/, "IEM") : b.name);
     set(`bus/${b.bus}/col`, WING_COLOR[b.color]);
-    if (b.icon !== undefined) set(`bus/${b.bus}/icon`, b.icon);
+    const busIcon = ears ? IEM_ICON : b.icon;
+    if (busIcon !== undefined) set(`bus/${b.bus}/icon`, busIcon);
     set(`bus/${b.bus}/busmono`, ears ? false : b.mono); // in-ear mixes are stereo
     set(`bus/${b.bus}/fdr`, DEFAULT_LEVEL_DB);
     set(`bus/${b.bus}/main/1/on`, b.toMain);
@@ -154,13 +153,15 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   }
 
   const groups = new Set<string>();
+  let tomIndex = 0;
   for (const c of scene.channels) {
     const ch = `ch/${c.ch}`;
     set(`${ch}/clink`, false); // show the channel's own name/color, not the source's
     set(`${ch}/name`, c.label);
     set(`${ch}/col`, WING_COLOR[c.color]);
     const preset: ChannelPreset = CHANNEL_PRESETS[c.kind];
-    if (preset.icon !== undefined) set(`${ch}/icon`, preset.icon);
+    const icon = c.kind === "tom" ? TOM_ICONS[Math.min(tomIndex++, TOM_ICONS.length - 1)] : preset.icon;
+    if (icon !== undefined) set(`${ch}/icon`, icon);
     if (preset.main === false) set(`${ch}/main/1/on`, false); // click / talkback stay out of FOH
     set(`${ch}/flt/lc`, true);
     set(`${ch}/flt/lcf`, c.hpf);

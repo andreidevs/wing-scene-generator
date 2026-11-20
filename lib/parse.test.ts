@@ -42,7 +42,7 @@ test("levels: dB values and relative words, per target", () => {
     { sources: ["vocal"], target: "vocal_reverb", db: -20 },
   ]);
   assert.deepEqual(mix(intent, "drummer"), ["kick"], "a level for a mix also puts the source in it");
-  assert.equal(intent.stream, false, "a stream *level* is not a stream request");
+  assert.equal(intent.stream, true, "a stream level also asks for the stream");
 });
 
 test("unmute and pages", () => {

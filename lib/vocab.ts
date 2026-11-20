@@ -13,18 +13,19 @@ type Mix = (typeof MONITOR_MIXES)[number];
 export const SOURCE_WORDS: [Src, string][] = [
   ["ambience", "амбиен\\p{L}*|эмбиен\\p{L}*|ambien\\p{L}*|зальн\\p{L}*(?:\\s+микрофон\\p{L}*)?|микрофон\\p{L}*\\s+(?:на\\s+)?зал\\p{L}*|audience(?:\\s?mics?)?|crowd(?:\\s?mics?)?|room\\s?mics?"],
   ["kick", "бас-?барабан\\p{L}*|кик\\p{L}*|бочк\\p{L}*|бочек|бочон\\p{L}*|kick(?:\\s?drum)?|bass\\s?drum|bd"],
-  ["sax", "(?:альт|тенор|баритон|сопрано)?-?саксофон\\p{L}*|сакс(?:ы|а|ов|ом)?|sax(?:ophone)?s?"],
+  ["sax", "(?:альт|тенор|баритон|сопрано)?-?саксофон\\p{L}*|(?:альт|тенор|баритон|сопрано)-?сакс\\p{L}*|сакс(?:ы|а|ов|ом)?|(?:alto|tenor|bari(?:tone)?|soprano)?\\s?sax(?:ophone)?s?"],
   ["harmonica", "губн\\p{L}*\\s+гармо\\p{L}*|гармоник\\p{L}*|harmonica|blues\\s?harp"],
-  ["bass", "контрабас\\p{L}*|басух\\p{L}*|бас(?!-?барабан)(?:[-\\s]?гитар\\p{L}*|а|у|е|ом|ы|ов|ам|ами|ах)?|bass(?:\\s?guitars?)?|upright|di\\s+бас\\p{L}*"],
-  ["ac_guitar", "акуст\\p{L}*(?:\\s+гитар\\p{L}*)?|акустух\\p{L}*|12-?струн\\p{L}*|укулеле|мандолин\\p{L}*|банджо|домр\\p{L}*|балалайк\\p{L}*|ac(?:oustic)?(?:\\s?gtr|\\s?guitars?)?|ukulele|mandolin|banjo"],
+  ["bass", "контрабас\\p{L}*|басух\\p{L}*|басист(?:ы|ка)?|бас(?!-?барабан)(?:[-\\s]?гитар\\p{L}*|а|у|е|ом|ы|ов|ам|ами|ах)?|bass(?:\\s?guitars?)?|upright|di\\s+бас\\p{L}*"],
+  // "акустический сет/концерт" is a format, not an instrument.
+  ["ac_guitar", "акуст\\p{L}*(?!\\s+(?:сет|концерт|программ|формат|выступлен|вечер))(?:\\s+гитар\\p{L}*)?|акустух\\p{L}*|12-?струн\\p{L}*|укулеле|мандолин\\p{L}*|банджо|домр\\p{L}*|балалайк\\p{L}*|ac(?:oustic)?(?:\\s?gtr|\\s?guitars?)?|ukulele|mandolin|banjo"],
   ["e_guitar", "(?:электро|соло-?|ритм-?)?гитар\\p{L}*|электрух\\p{L}*|комбик\\p{L}*|гитарн\\p{L}*\\s+комбо|gtrs?|e-?guitars?|guitars?|guitar\\s?amp"],
   ["harp", "арф\\p{L}*|harps?"],
   ["trombone", "тромбон\\p{L}*|trombones?|tbn"],
   ["horn", "валторн\\p{L}*|туб(?:а|ы|у|ой)|сузафон\\p{L}*|эуфониум\\p{L}*|tubas?|french\\s?horns?|sousaphone|euphonium"],
-  ["trumpet", "труб(?:а|ы|у|ой|е)|корнет\\p{L}*|флюгельгорн\\p{L}*|trumpets?|cornets?|flugelhorn|tpt"],
+  ["trumpet", "трубач(?:и)?|труб(?:а|ы|у|ой|е)|корнет\\p{L}*|флюгельгорн\\p{L}*|trumpets?|cornets?|flugelhorn|tpt"],
   ["flute", "флейт\\p{L}*|пикколо|flutes?|piccolo"],
   ["winds", "кларнет\\p{L}*|гобо(?:й|я|и|ев)|фагот\\p{L}*|дудук\\p{L}*|свирел\\p{L}*|clarinets?|oboes?|bassoons?|duduk|woodwinds?"],
-  ["violin", "скрип(?:к\\p{L}*|ок)|альт(?!-?сакс)(?:ы|а|ов)?|violins?|violas?|fiddles?"],
+  ["violin", "скрипач(?:и|ка)?|скрип(?:к\\p{L}*|ок)|альт(?!-?сакс)(?:ы|а|ов)?|violins?|violas?|fiddles?"],
   ["cello", "виолончел\\p{L}*|cellos?"],
   ["accordion", "аккордеон\\p{L}*|баян\\p{L}*|гармонь|гармошк\\p{L}*|accordions?|bayan"],
   ["snare", "сне[йи]р\\p{L}*|снэр\\p{L}*|мал(?:ый|ого|ому|ым)(?:\\s+барабан\\p{L}*)?|рабоч(?:ий|его|ему)(?:\\s+барабан\\p{L}*)?|snares?|sd"],
@@ -33,16 +34,17 @@ export const SOURCE_WORDS: [Src, string][] = [
   ["overhead", "овер(?:хе[дт]|х[эе][дт])?\\p{L}*|тарелк\\p{L}*|железо|райд\\p{L}*|кр[эе]ш\\p{L}*|overheads?|oh|cymbals?|ride|crash"],
   ["perc", "перкусси\\p{L}*|кахон\\p{L}*|конг(?:а|и|ас)\\p{L}*|бонго|шейкер\\p{L}*|бубен|бубн\\p{L}*|тамбурин\\p{L}*|джембе|тимбал\\p{L}*|маракас\\p{L}*|ксилофон\\p{L}*|вибрафон\\p{L}*|маримб\\p{L}*|колокольчик\\p{L}*|percussion|perc|cajon|congas?|bongos?|shakers?|tambourines?|djembe|timbales|cowbell|vibraphone|marimba|glockenspiel|chimes"],
   ["sampler", "с[еэ]мплер\\p{L}*|spd|пэд\\p{L}*|октапад\\p{L}*|драм-?машин\\p{L}*|электронн\\p{L}*\\s+(?:барабан\\p{L}*|ударн\\p{L}*)|samplers?|octapad|drum\\s?machine|e-?drums|pads?"],
-  ["drum_kit", "барабан(?!щик)\\p{L}*|ударн(?:ые|ых|ым|ая|ой|ую)(?!\\s*\\p{L}*ик)|ударк\\p{L}*|установк\\p{L}*|drums?|drum\\s?kit|kit"],
-  ["keys", "клавиш(?!ник)\\p{L}*|клав(?:а|ы|у|ой)|синт\\p{L}*|пиано|фоно|фортепиано|рояль|рояля|орган(?!изу)\\p{L}*|электропиано|хаммонд\\p{L}*|rhodes|wurlitzer|nord|hammond|moog|keys|keyboards?|piano|synths?|organ|ep"],
+  ["drum_kit", "барабанщик(?:и)?|барабан(?!щик)\\p{L}*|ударн(?:ые|ых|ым|ая|ой|ую)(?!\\s*\\p{L}*ик)|ударк\\p{L}*|установк\\p{L}*|drums?|drum\\s?kit|kit"],
+  ["keys", "клавишник(?:и)?|пианист(?:ка)?|клавиш(?!ник)\\p{L}*|клав(?:а|ы|у|ой)|синт\\p{L}*|пиано|фоно|фортепиано|рояль|рояля|орган(?!изу)\\p{L}*|электропиано|хаммонд\\p{L}*|rhodes|wurlitzer|nord|hammond|moog|keys|keyboards?|piano|synths?|organ|ep"],
   ["dj", "dj|ди-?дж[еэ]й\\p{L}*|диджей\\p{L}*|вертушк\\p{L}*|turntables?|cdj"],
   ["playback", "плей-?б[эе]к\\p{L}*|фонограм\\p{L}*|трек\\p{L}*|минусовк\\p{L}*|минус(?:а|ы)?|бэкинг\\p{L}*|секвенци\\p{L}*|ноутбук\\p{L}*|компьютер\\p{L}*|комп|плеер\\p{L}*|видео\\p{L}*|ableton|playback|backing|laptop|pc|tracks?|player|video"],
   ["click", "клик\\p{L}*|метроном\\p{L}*|click|metronome"],
   ["talkback", "толкб[эе]к\\p{L}*|токб[эе]к\\p{L}*|talk-?back|звукорежисс\\p{L}*|микрофон\\p{L}*\\s+связи"],
   ["choir", "хор(?:а|у|ом|ы|овой|ов)?|choir|choirs"],
-  ["speech", "ведущ(?!\\p{L}*\\s+вокал)\\p{L}*|спикер\\p{L}*|конферансье|презентер\\p{L}*|докладчик\\p{L}*|лектор\\p{L}*|модератор\\p{L}*|пастор\\p{L}*|проповедник\\p{L}*|радиомик\\p{L}*|радиомикрофон\\p{L}*|радик\\p{L}*|петличк\\p{L}*|петл(?:я|и|ей)|гарнитур\\p{L}*|головн\\p{L}*\\s+микрофон\\p{L}*|headsets?|lav(?:alier)?s?|speech|mc|host|presenter|moderator|pastor|wireless"],
-  ["backvocal", "бэк-?вокал(?!ист)\\p{L}*|бэк(?:и|ов|ам|а|ами)?|подпевк\\p{L}*|бэк-?вокалист(?:ы|ка|ки|ов)?|backing\\s+vocals?|back\\s?vocals?|bvs?|bgvs?"],
-  ["vocal", "(?:лид|основн\\p{L}*|главн\\p{L}*)?-?вокал(?!ист(?:у|ам|ке))\\p{L}*|вокальн\\p{L}*|голос\\p{L}*|лид|солист(?!у|ам|ке)\\p{L}*|певец|певица|певцы|vox|vocals?|lead|singers?"],
+  ["speech", "ведущ(?!\\p{L}*\\s+вокал)\\p{L}*|спикер\\p{L}*|конферансье|презентер\\p{L}*|докладчик\\p{L}*|лектор\\p{L}*|модератор\\p{L}*|пастор\\p{L}*|проповедник\\p{L}*|радиомик\\p{L}*|радиомикрофон\\p{L}*|радик\\p{L}*|петлич\\p{L}*|петл(?:я|и|ей)|гарнитур\\p{L}*|головн\\p{L}*\\s+микрофон\\p{L}*|headsets?|handhelds?|lav(?:alier)?s?|speech|mc|host|presenter|moderator|pastor|wireless"],
+  ["backvocal", "бэк-?вокал\\p{L}*|бэк(?:и|ов|ам|а|ами)?|подпевк\\p{L}*|подпева\\p{L}*|backing\\s+vocals?|back\\s?vocals?|bvs?|bgvs?"],
+  // "поёт/поют" — a singing performer means a vocal mic ("Маша играет на акустике и поёт").
+  ["vocal", "(?:лид|основн\\p{L}*|главн\\p{L}*)?-?вокал(?!ист(?:у|ам|ке))\\p{L}*|вокальн\\p{L}*|голос\\p{L}*|лид|солист(?!у|ам|ке)\\p{L}*|певец|певица|певцы|по[её]т|поют|спо[её]т|vox|vocals?|lead|singers?|sings?"],
 ];
 // "микрофон" alone means a vocal mic, but only when the clause names nothing else.
 export const MIC_WORDS = "микрофон\\p{L}*|мик(?:а|и|ов)?|mics?|microphones?";
@@ -54,18 +56,32 @@ export const FULL_KIT_WORDS = "полн\\p{L}*\\s+(?:ударк\\p{L}*|удар�
 export const STEREO_WORDS = "стерео|stereo|l\\s?/\\s?r|лево-?право|в\\s+стерео";
 
 // ---------------------------------------------------------------- monitors
-// Recipients ("кому"). Removed from the clause before looking for sources, so "басисту" is not a bass.
+// Recipients ("кому"): dative ("басисту") or "для" + genitive ("для барабанщика"). Removed from the clause
+// before looking for sources. Nominative ("трубач и саксофонист") is a performer → instrument (SOURCE_WORDS).
 export const RECIPIENT_WORDS: Record<Mix, string> = {
-  vocals: "вокал(?:ам|истам|исту|истке|исткам)|певц(?:у|ам)|певиц(?:е|ам)|солист(?:у|ам|ке)|(?:for|to)\\s+(?:the\\s+)?(?:singers?|vocals?|vocalists?)",
-  drummer: "барабанщик\\p{L}*|ударник\\p{L}*|драммер\\p{L}*|(?:for|to)\\s+(?:the\\s+)?drummer",
-  bass: "басист\\p{L}*|(?:for|to)\\s+(?:the\\s+)?bass(?:ist|\\s+player)",
-  guitar: "гитарист\\p{L}*|(?:for|to)\\s+(?:the\\s+)?guitar(?:ist)?s?",
-  keys: "клавишник\\p{L}*|пианист\\p{L}*|органист\\p{L}*|(?:for|to)\\s+(?:the\\s+)?(?:keys|keyboardist|pianist)",
-  brass: "духов(?:ым|ых|ики|икам|иков)|саксофонист\\p{L}*|трубач\\p{L}*|тромбонист\\p{L}*|флейтист\\p{L}*|(?:for|to)\\s+(?:the\\s+)?(?:horns|brass)",
-  strings: "скрипач\\p{L}*|виолончелист\\p{L}*|альтист\\p{L}*|струнн(?:ым|ых|ики|икам)|(?:for|to)\\s+(?:the\\s+)?strings",
+  vocals: "вокал(?:у|ам|исту|истам|истке|исткам)|певц(?:у|ам)|певиц(?:е|ам)|солист(?:у|ам|ке)|для\\s+вокал\\p{L}*|(?:for|to)\\s+(?:the\\s+)?(?:singers?|vocals?|vocalists?)",
+  drummer: "барабанщик(?:у|ам|а|ов)|ударник(?:у|ам|а|ов)|драммер(?:у|ам|а|ов)|(?:for|to)\\s+(?:the\\s+)?drummer",
+  bass: "басист(?:у|ам|ке|а|ов)|(?:for|to)\\s+(?:the\\s+)?bass(?:ist|\\s+player)",
+  guitar: "гитарист(?:у|ам|ке|а|ов)|(?:for|to)\\s+(?:the\\s+)?guitar(?:ist)?s?",
+  keys: "клавишник(?:у|ам|а|ов)|пианист(?:у|ам|ке|а)|органист(?:у|ам|а)|(?:for|to)\\s+(?:the\\s+)?(?:keys|keyboardist|pianist)",
+  brass: "духов(?:ым|ых|ики|икам|иков)|саксофонист(?:у|ам|ке|а|ов)|трубач(?:у|ам|а|ей)|тромбонист(?:у|ам|а)|флейтист(?:у|ам|ке|а)|(?:for|to)\\s+(?:the\\s+)?(?:horns|brass)",
+  strings: "скрипач(?:у|ам|ке|а|ей)|виолончелист(?:у|ам|ке|а)|альтист(?:у|ам|ке|а)|струнн(?:ым|ых|ики|икам)|(?:for|to)\\s+(?:the\\s+)?strings",
 };
 // "мониторы всем": one mix per musician family present in the scene.
-export const EVERYONE_WORDS = "всем|каждому|всех\\s+музыкант\\p{L}*|всем\\s+музыкант\\p{L}*|всей\\s+групп\\p{L}*|everyone|everybody|all\\s+musicians";
+export const EVERYONE_WORDS = "всем|каждому|обоим|обеим|двоим|троим|для\\s+всех|всех\\s+музыкант\\p{L}*|всем\\s+музыкант\\p{L}*|всей\\s+групп\\p{L}*|everyone|everybody|both|for\\s+all|all\\s+musicians";
+// Two mics on one source, written right after it: "бочка внутрь и снаружи", "малый верх и низ",
+// "kick in and out", "snare top/bottom", "бас DI плюс микрофон", "OH pair".
+export const PAIR_PHRASE_WORDS =
+  "внутр\\p{L}*\\s+и\\s+снаруж\\p{L}*|снаруж\\p{L}*\\s+и\\s+внутр\\p{L}*|верх\\p{L}*\\s+и\\s+низ\\p{L}*|in\\s*(?:and|/|&)\\s*out|top\\s*(?:and|/|&)\\s*bottom|" +
+  "di\\s*(?:\\+|плюс|и|and|&)\\s*(?:микрофон\\p{L}*|мик\\p{L}*|mics?)|пар(?:а|у)|pair";
+// "по одному микрофону" — counts mics per performer, not an extra vocal.
+export const PER_PERFORMER_WORDS = "по\\s+(?:одному|1|одн\\p{L}*)\\s+(?:микрофон\\p{L}*|мик\\p{L}*)";
+// Typo tolerance: when nothing matches, a word close to one of these stems counts as that source.
+export const FUZZY_STEMS: [Src, string][] = [
+  ["vocal", "вокал"], ["e_guitar", "гитар"], ["bass", "бас"], ["drum_kit", "барабан"], ["keys", "клавиш"],
+  ["ac_guitar", "акустик"], ["kick", "бочк"], ["snare", "снейр"], ["overhead", "овер"], ["sax", "саксофон"],
+  ["trumpet", "труб"], ["violin", "скрипк"], ["cello", "виолончел"], ["choir", "хор"], ["playback", "плейбэк"],
+];
 // Which mix a source family belongs to for "мониторы всем".
 export const FAMILY_MIX: Partial<Record<SourceKind, Mix>> = {
   vocal: "vocals", backvocal: "vocals", choir: "vocals", harmonica: "vocals",
@@ -89,6 +105,7 @@ export const FX_WORDS: Record<(typeof FX_KINDS)[number] | "reverb", string> = {
 // ---------------------------------------------------------------- numbers
 export const NUM_WORDS: Record<string, number> = {
   один: 1, одна: 1, одно: 1, одного: 1, одной: 1, два: 2, две: 2, двух: 2, пара: 2, пару: 2, три: 3, трёх: 3, трех: 3,
+  двое: 2, трое: 3, четверо: 4, пятеро: 5, шестеро: 6,
   четыре: 4, четырёх: 4, четырех: 4, пять: 5, пяти: 5, шесть: 6, шести: 6, семь: 7, семи: 7, восемь: 8, восьми: 8,
   девять: 9, девяти: 9, десять: 10, десяти: 10, одиннадцать: 11, двенадцать: 12, тринадцать: 13, четырнадцать: 14,
   пятнадцать: 15, шестнадцать: 16,

@@ -46,13 +46,14 @@ const EXAMPLES = [
   "Вокалы не мьютить / ничего не мьютить, кроме клика / бас в ноль",
   "Вокалы, мониторы и dca на USER 1",
 ];
+// The 12 WING colors, as the console names them.
 const COLOR_LABELS: Record<ColorId, string> = {
-  red: "Красный", orange: "Оранжевый", yellow: "Жёлтый", green: "Зелёный", cyan: "Бирюзовый",
-  blue: "Синий", purple: "Сиреневый", pink: "Розовый", gray: "Серый",
+  grayblue: "Серо-синий", blue: "Синий", darkblue: "Тёмно-синий", turquoise: "Бирюзовый", green: "Зелёный", olive: "Оливковый",
+  yellow: "Жёлтый", orange: "Оранжевый", red: "Красный", coral: "Коралловый", pink: "Розовый", mauve: "Пурпурный",
 };
 const COLOR_SWATCH: Record<ColorId, string> = {
-  red: "bg-red-500", orange: "bg-orange-500", yellow: "bg-yellow-400", green: "bg-green-500", cyan: "bg-teal-400",
-  blue: "bg-blue-500", purple: "bg-purple-400", pink: "bg-pink-400", gray: "bg-slate-400",
+  grayblue: "bg-slate-400", blue: "bg-blue-500", darkblue: "bg-blue-800", turquoise: "bg-teal-400", green: "bg-green-500", olive: "bg-lime-700",
+  yellow: "bg-yellow-400", orange: "bg-orange-500", red: "bg-red-600", coral: "bg-orange-300", pink: "bg-pink-400", mauve: "bg-fuchsia-500",
 };
 const NO_DCA = "none";
 

@@ -34,11 +34,13 @@ test("ТЗ scene: only allowlisted fields change, guards stay at 0", () => {
   for (const g of s.guards) assert.equal(g.count, 0, `${g.label} must not change`);
   const out = JSON.parse(build()).ae_data;
   assert.equal(out.ch["10"].name, "Vox 1");
-  assert.equal(out.ch["10"].col, 7, "yellow");
+  assert.equal(out.ch["10"].col, 12, "vocals are mauve (WING color 12)");
   assert.equal(out.ch["10"].flt.lc, true);
   assert.equal(out.ch["10"].flt.lcf, 100);
   assert.equal(out.ch["10"].fdr, -18);
-  assert.equal(out.ch["10"].icon, 102, "vocal icon");
+  assert.equal(out.ch["10"].icon, 101, "vocal: dynamic handheld icon");
+  assert.equal(out.ch["1"].col, 9, "drums red");
+  assert.equal(out.ch["5"].col, 3, "bass dark blue");
   assert.equal(out.ch["1"].icon, 201, "kick icon");
   assert.equal(out.bus["13"].icon, 6, "FX bus icon");
   assert.equal(out.dca["7"].icon, 112, "vocals DCA icon");
@@ -132,7 +134,8 @@ test("click and talkback stay out of Main 1; delay bus gets FX3 ST-DL; unverifie
   assert.equal(out.ch[ch.talkback].main["1"].on, false);
   assert.equal(out.ch[ch.vocal].main["1"].on, true, "musicians stay in Main");
   assert.equal(out.ch[ch.click].icon, 222);
-  assert.equal(out.ch[ch.violin].icon, ae.ch[String(ch.violin)].icon, "no verified violin icon → untouched");
+  assert.equal(out.ch[ch.violin].icon, 309, "violin icon");
+  assert.equal(out.ch[ch.violin].col, 7, "strings yellow");
   assert.equal(out.bus["15"].name, "Delay");
   assert.equal(out.bus["15"].preins.ins, "FX3");
   assert.equal(out.fx["3"].mdl, "ST-DL");
@@ -153,4 +156,11 @@ test("in-ear mix: stereo bus named IEM, FX returns sent into it; wedge stays mon
   assert.equal(out.bus["13"].send["2"].on, false, "no FX in the wedge");
   const sum = summarize(diff(raw, apply(raw, compile(s, JSON.parse(raw)))));
   assert.deepEqual(sum.outsideAllowlist, []);
+});
+
+test("toms get H/M/L/F icons in order; in-ear buses get the headphones icon", () => {
+  const s = expand({ ...EXAMPLE_INTENT, sources: [{ kind: "tom", count: 4 }, { kind: "vocal", count: 1 }], monitors: [{ for: "vocals", contains: [], iem: true }] });
+  const out = JSON.parse(apply(raw, compile(s, JSON.parse(raw)))).ae_data;
+  assert.deepEqual([1, 2, 3, 4].map((n) => out.ch[String(n)].icon), [206, 207, 208, 209]);
+  assert.equal(out.bus["1"].icon, 602);
 });
