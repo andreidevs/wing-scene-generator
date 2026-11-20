@@ -163,7 +163,7 @@ export async function llmIntent(text: string, key: string, opts: LlmOptions = {}
         temperature: 0,
         max_tokens: 6000, // detailed layouts are long JSON
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(60_000), // long detailed layouts take ~45 s on the cheap model
     });
   for (let attempt = 0; attempt < 2; attempt++) {
     const user = problem ? `${text}\n\nПредыдущий ответ не прошёл проверку схемы: ${problem}\nИсправь и верни валидный JSON.` : text;
