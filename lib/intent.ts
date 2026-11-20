@@ -56,6 +56,11 @@ export const IntentSchema = z
     .default([]),
   // Subgroups: members go to the group bus (GRP send) instead of Main 1; the group goes to Main 1.
   groups: z.array(z.object({ name: Name, members: z.array(Ref).min(1), except: z.array(Ref).default([]) })).max(4).default([]),
+  // Mute groups (WING has 8): "mute group 1 — все вокалы кроме спикера". group = its number, else the list order.
+  muteGroups: z
+    .array(z.object({ group: z.number().int().min(1).max(8).optional(), name: Name.optional(), members: z.array(Ref).min(1), except: z.array(Ref).default([]) }))
+    .max(8)
+    .default([]),
   // Names for the mains ("Main1 — Топы, Main2 — Сабы"). Channels always go to Main 1 only.
   mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: Name })).default([]),
   // Stream as a bus with per-channel sends (default) or as a matrix fed from Main 1.

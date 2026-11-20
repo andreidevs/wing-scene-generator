@@ -63,7 +63,7 @@ test("ТЗ scene: only allowlisted fields change, guards stay at 0", () => {
 
 test("apply rejects anything outside the contract", () => {
   const ok = { op: "set" as const };
-  assert.throws(() => apply(raw, [{ ...ok, path: "ch/1/in/conn/altin", value: 5 }]), PatchError, "routing not allowlisted");
+  assert.throws(() => apply(raw, [{ ...ok, path: "io/out/LCL/1/in", value: 5 }]), PatchError, "routing not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "main/1/fdr", value: 0 }]), PatchError, "main not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "io/in/LCL/1/vph", value: true }]), PatchError, "phantom not allowlisted");
   assert.throws(() => apply(raw, [{ ...ok, path: "io/in/LCL/1/g", value: 10 }]), PatchError, "gain not allowlisted");

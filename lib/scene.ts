@@ -27,6 +27,7 @@ export const ChannelDraftSchema = z.object({
   stream: z.boolean(),
   sendLevel: z.record(z.string(), Db), // dB per bus id, used when that send is on (missing = -18)
   groups: z.array(z.string()).default([]), // subgroup bus ids (GRP send); a grouped channel skips Main 1
+  muteGroups: z.array(z.number().int().min(1).max(8)).default([]), // WING mute groups (#M tags)
   toMain: z.boolean().default(true), // direct assignment to Main 1
   dca: z.enum(DCA_GROUPS).nullable(),
   edited: z.array(z.enum(EDITABLE)), // fields the user changed by hand; kind changes keep them
@@ -78,6 +79,7 @@ export const SceneSchema = z.object({
   buses: z.array(BusDefSchema).max(16).default([]),
   mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: z.string().min(1).max(16) })).default([]),
   matrices: z.array(z.object({ mtx: z.number().int().min(1).max(8), name: z.string().min(1).max(16), from: z.number().int().min(1).max(4) })).default([]),
+  muteGroups: z.array(z.object({ group: z.number().int().min(1).max(8), name: z.string().min(1).max(16).optional() })).default([]),
   record: z.object({ usb: z.boolean(), card: z.boolean() }).default({ usb: false, card: false }),
   console: z.enum(["rack", "compact", "wing"]).default("rack"), // decides how many local inputs there are
   pages: z.array(PageSpecSchema).max(2), // empty = standard pages only
@@ -263,6 +265,7 @@ export function expand(intent: Intent, text = ""): Scene {
       fader: DEFAULT_LEVEL_DB,
       sendLevel: {},
       groups: [],
+      muteGroups: [],
       toMain: (CHANNEL_PRESETS[kind] as ChannelPreset).main !== false,
       edited: [],
     });
@@ -311,6 +314,12 @@ export function expand(intent: Intent, text = ""): Scene {
       c.toMain = false; // "сначала в группу, потом в мастер"
     }
   });
+  const muteGroups = intent.muteGroups.map((g, k) => {
+    const group = g.group ?? k + 1;
+    const except = new Set(g.except.flatMap((r) => resolveRef(r, channels)));
+    for (const c of new Set(g.members.flatMap((r) => resolveRef(r, channels)))) if (!except.has(c) && !c.muteGroups.includes(group)) c.muteGroups.push(group);
+    return { group, name: g.name };
+  });
   for (const m of mixes.monitors) drafts.push(roleBus(m.role, m.iem));
   for (const f of mixes.fx) drafts.push(roleBus(f, false));
   if (mixes.stream) drafts.push(roleBus("stream", false));
@@ -344,7 +353,7 @@ export function expand(intent: Intent, text = ""): Scene {
     sources: p.sources.flatMap((k) => (k === "all" ? ["all" as const] : expandContains([k]))),
   }));
   const matrices = intent.stream && intent.streamVia === "matrix" ? [{ mtx: 1, name: "Stream", from: 1 }] : [];
-  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, record: intent.record, console: consoleIn(text) ?? "rack", pages };
+  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, muteGroups, record: intent.record, console: consoleIn(text) ?? "rack", pages };
 }
 
 const kinds_all = (channels: ChannelDraft[]) => channels.map((c) => c.kind);
@@ -374,6 +383,7 @@ export function newChannel(scene: Scene, kind: SourceKind): ChannelDraft | null 
     fader: DEFAULT_LEVEL_DB,
     sendLevel: {},
     groups: [],
+    muteGroups: [],
     toMain: (CHANNEL_PRESETS[kind] as ChannelPreset).main !== false,
     edited: [],
   };

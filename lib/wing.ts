@@ -46,6 +46,10 @@ const RULES: { tpl: string; schema: z.ZodType; kind: Kind }[] = [
   { tpl: "ch/{ch}/in/conn/grp", schema: INPUT_GRP, kind: "Входы" },
   { tpl: "ch/{ch}/in/conn/in", schema: z.number().int().min(1).max(64), kind: "Входы" },
   { tpl: "io/in/{grp}/{inp}/mode", schema: z.enum(["M", "ST"]), kind: "Входы" },
+  { tpl: "ch/{ch}/in/conn/altgrp", schema: INPUT_GRP, kind: "Входы" },
+  { tpl: "ch/{ch}/in/conn/altin", schema: z.number().int().min(1).max(64), kind: "Входы" },
+  // Input select GLOBAL: the channel follows the console's main/alt switch (as in show-working.snap, CH 1–24).
+  { tpl: "ch/{ch}/in/set/srcauto", schema: z.literal(true), kind: "Входы" },
   // Recording outputs: USB (DAW) and the WING-LIVE card, fed straight from the channel inputs.
   { tpl: "io/out/USB/{usb}/grp", schema: INPUT_GRP, kind: "Запись" },
   { tpl: "io/out/USB/{usb}/in", schema: z.number().int().min(1).max(64), kind: "Запись" },
@@ -89,6 +93,7 @@ const RULES: { tpl: string; schema: z.ZodType; kind: Kind }[] = [
   { tpl: "mtx/{mx}/col", schema: col, kind: "Шины" },
   { tpl: "mtx/{mx}/icon", schema: icon, kind: "Иконки" },
   { tpl: "mtx/{mx}/fdr", schema: db, kind: "Фейдеры" },
+  { tpl: "mgrp/{mx}/name", schema: z.string().min(1).max(16), kind: "DCA" },
   { tpl: "dca/{dca}/name", schema: z.string().min(1).max(8), kind: "DCA" },
   { tpl: "dca/{dca}/col", schema: col, kind: "DCA" },
   { tpl: "dca/{dca}/icon", schema: icon, kind: "Иконки" },
@@ -124,10 +129,10 @@ export type Patch = { op: "set"; path: string; value: string | number | boolean 
 // Role ids among the scene's buses (for callers that think in roles: reports, the baseline validator).
 const dcaNumber = (g: string) => DCA_GROUPS.indexOf(g as (typeof DCA_GROUPS)[number]) + 1;
 
-// Replace DCA tags (#D…), keep everything else (mute groups #M…, user tags).
-function withDca(tags: string, dca: number | null): string {
-  const rest = tags.split(",").filter((t) => t && !/^#D\d+$/.test(t));
-  return [...(dca ? [`#D${dca}`] : []), ...rest].join(",");
+// Replace DCA tags (#D…) and, when the scene defines mute groups, #M… too; keep user tags.
+function withTags(tags: string, dca: number | null, mutes: number[] | null): string {
+  const rest = tags.split(",").filter((t) => t && !/^#D\d+$/.test(t) && !(mutes && /^#M\d+$/.test(t)));
+  return [...(dca ? [`#D${dca}`] : []), ...(mutes ?? []).map((m) => `#M${m}`), ...rest].join(",");
 }
 
 export type BaselineSnap = {
@@ -158,19 +163,26 @@ export function inputLabels(scene: Scene, base: BaselineSnap): Record<number, st
 }
 
 // Recording tracks in channel order (CH 1…last scene channel, reserved ones too): each channel's input,
-// two tracks for a stereo pair. The same list goes to USB 1… and/or CRD 1….
-export function recordTracks(scene: Scene, base: BaselineSnap): { ch: number; label: string; grp: string; in: number }[] {
+// two tracks for a stereo pair starting on an odd number (so the card can play it back as an ST pair).
+// `out` is the track number: USB out / CRD out k, and CRD in k as the channel's ALT input.
+export type Track = { ch: number; label: string; grp: string; in: number; out: number; stereo: boolean };
+
+export function recordTracks(scene: Scene, base: BaselineSnap): Track[] {
   const patch = inputPatch(scene, base);
   const labels = new Map(scene.channels.map((c) => [c.ch, c.label]));
   const last = Math.max(0, ...scene.channels.map((c) => c.ch));
-  const tracks: { ch: number; label: string; grp: string; in: number }[] = [];
+  const tracks: Track[] = [];
+  let out = 1;
   for (let n = 1; n <= last; n++) {
     const p = patch?.channels.get(n);
     const conn = p ?? base.ae_data.ch[String(n)]?.in?.conn;
     if (!conn || conn.grp === "OFF") continue;
     const label = labels.get(n) ?? `CH ${n}`;
-    if (p?.stereo) tracks.push({ ch: n, label: `${label} L`, grp: p.grp, in: p.in }, { ch: n, label: `${label} R`, grp: p.grp, in: p.in + 1 });
-    else tracks.push({ ch: n, label, grp: conn.grp, in: conn.in });
+    if (p?.stereo) {
+      if (out % 2 === 0) out++; // the even track before the pair stays empty
+      tracks.push({ ch: n, label: `${label} L`, grp: p.grp, in: p.in, out, stereo: true }, { ch: n, label: `${label} R`, grp: p.grp, in: p.in + 1, out: out + 1, stereo: true });
+      out += 2;
+    } else tracks.push({ ch: n, label, grp: conn.grp, in: conn.in, out: out++, stereo: false });
   }
   return tracks;
 }
@@ -218,20 +230,30 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   const inputs = inputPatch(scene, base);
   if (inputs) {
     for (const [n, i] of inputs.channels) {
+      set(`ch/${n}/in/set/srcauto`, true);
       set(`ch/${n}/in/conn/grp`, i.grp);
       set(`ch/${n}/in/conn/in`, i.in);
     }
     for (const [g, m] of inputs.modes) m.forEach((mode, k) => set(`io/in/${g}/${k + 1}/mode`, mode));
   }
+  const tracks = recordTracks(scene, base);
+  const lastTrack = tracks.at(-1)?.out ?? 0;
   const targets = [...(scene.record.usb ? [["USB", 48]] : []), ...(scene.record.card ? [["CRD", 64]] : [])] as [string, number][];
-  if (targets.length) {
-    const tracks = recordTracks(scene, base);
-    for (const [out, size] of targets) {
-      if (tracks.length > size) throw new Error(`На запись ${tracks.length} дорожек, а выходов ${out} только ${size}`);
-      tracks.forEach((t, k) => {
-        set(`io/out/${out}/${k + 1}/grp`, t.grp);
-        set(`io/out/${out}/${k + 1}/in`, t.in);
-      });
+  for (const [out, size] of targets) {
+    if (lastTrack > size) throw new Error(`На запись ${lastTrack} дорожек, а выходов ${out} только ${size}`);
+    for (const t of tracks) {
+      set(`io/out/${out}/${t.out}/grp`, t.grp);
+      set(`io/out/${out}/${t.out}/in`, t.in);
+    }
+  }
+  // ALT input = the channel's own track on the WING-LIVE card (playback / virtual soundcheck through the
+  // global main/alt switch, input select GLOBAL).
+  if (inputs && lastTrack <= 64) {
+    for (const t of tracks) {
+      set(`io/in/CRD/${t.out}/mode`, t.stereo ? "ST" : "M");
+      if (t.label.endsWith(" R") && t.stereo) continue;
+      set(`ch/${t.ch}/in/conn/altgrp`, "CRD");
+      set(`ch/${t.ch}/in/conn/altin`, t.out);
     }
   }
 
@@ -257,6 +279,8 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
       set(`bus/${fxb.bus}/send/${mon.bus}/lvl`, DEFAULT_LEVEL_DB);
     }
   }
+
+  for (const g of scene.muteGroups) if (g.name) set(`mgrp/${g.group}/name`, g.name);
 
   // Main names ("Tops", "Subs"); channels are assigned to Main 1 only (Main 2+ is fed by hand).
   for (const m of scene.mains) set(`main/${m.main}/name`, m.name);
@@ -297,7 +321,7 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
       }
     }
     if (c.dca) groups.add(c.dca);
-    set(`${ch}/tags`, withDca(ae.ch[String(c.ch)]?.tags ?? "", c.dca ? dcaNumber(c.dca) : null));
+    set(`${ch}/tags`, withTags(ae.ch[String(c.ch)]?.tags ?? "", c.dca ? dcaNumber(c.dca) : null, scene.muteGroups.length ? [...c.muteGroups].sort() : null));
   }
 
   for (const g of DCA_GROUPS.filter((g) => groups.has(g))) {
@@ -367,8 +391,8 @@ export function diff(beforeRaw: string, afterRaw: string): DiffEntry[] {
 
 // Guard counters: things the generator must never change. Computed from the real diff.
 const GUARDS: { label: string; re: RegExp }[] = [
-  // Outputs and alt inputs. The main input patch is allowlisted ("Входы") for stereo pairs only.
-  { label: "Routing", re: /^ae_data\/(io\/out\/(?!(?:USB|CRD)\/\d+\/(?:grp|in)$)|ch\/\d+\/in\/conn\/alt)/ },
+  // Outputs other than the recording ones (input patch and ALT inputs are allowlisted as "Входы").
+  { label: "Routing", re: /^ae_data\/io\/out\/(?!(?:USB|CRD)\/\d+\/(?:grp|in)$)/ },
   { label: "Gain", re: /^ae_data\/(io\/in\/[^/]+\/\d+\/g$|ch\/\d+\/in\/set\/trim$)/ },
   { label: "Phantom", re: /^ae_data\/io\/in\/[^/]+\/\d+\/vph$/ },
   // Main processing/fader/mute/output; names and the Main → Matrix send are allowlisted on purpose.

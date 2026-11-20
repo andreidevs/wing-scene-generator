@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EXAMPLE_INTENT, EXAMPLE_TEXT } from "./example";
-import { DEFAULT_MODEL, LlmError, llmIntent, voteIntent } from "./llm";
+import { DEFAULT_MODEL, LlmError, llmIntent, repair, voteIntent } from "./llm";
+import { IntentSchema } from "./intent";
 import { parseRequest } from "./parse";
 
 // No network: a fake fetch returns canned OpenRouter responses.
@@ -126,4 +127,16 @@ test("vote: a 2–2 tie goes to the parser's scene", async () => {
   const { impl } = fakeFetch([slip, slip, PARSED]);
   const r = await voteIntent(EXAMPLE_TEXT, "test-key", { fetchImpl: impl });
   assert.deepEqual(r.intent.sources, parseRequest(EXAMPLE_TEXT).intent.sources);
+});
+
+test("repair: an own channel the model named in words maps to that source kind", () => {
+  const intent = IntentSchema.parse({
+    monitors: [],
+    fx: [],
+    stream: false,
+    channels: [{ kind: "ac_guitar", count: 2 }, { kind: "bass" }],
+    mixes: [{ name: "InEarAccustic", own: ["Acoustic"] }, { name: "InEarBass", own: ["bass"] }],
+  });
+  const out = repair("Аккустика, Аккустика 2, Бас. InEarAccustic, InEarBass", intent);
+  assert.deepEqual(out.mixes.map((m) => m.own), [["ac_guitar"], ["bass"]]);
 });

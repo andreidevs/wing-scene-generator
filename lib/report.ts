@@ -22,6 +22,10 @@ export function buildReport(opts: {
   L.push(`- Console: ${CONSOLES[scene.console].label} (${CONSOLES[scene.console].local} локальных входов, дальше AES50 A)`);
   L.push(`- Buses: ${scene.buses.map((b) => `Bus ${b.bus} ${b.name} (${b.mode})`).join(", ") || "—"}`);
   if (scene.mains.length) L.push(`- Mains: ${scene.mains.map((m) => `Main ${m.main} ${m.name}`).join(", ")}`);
+  if (scene.muteGroups.length) {
+    const who = (n: number) => scene.channels.filter((c) => c.muteGroups.includes(n)).map((c) => c.label).join(", ") || "—";
+    L.push(`- Mute groups: ${scene.muteGroups.map((g) => `${g.group}${g.name ? ` ${g.name}` : ""} (${who(g.group)})`).join("; ")}`);
+  }
   if (scene.matrices.length) L.push(`- Matrix: ${scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}`);
   L.push("");
   if (scene.text) L.push("## Запрос", "", `> ${scene.text}`, "");
@@ -32,9 +36,10 @@ export function buildReport(opts: {
   const outs = [...(scene.record.usb ? ["USB"] : []), ...(scene.record.card ? ["CRD (WING-LIVE)"] : [])];
   if (outs.length) {
     const tracks = recordTracks(scene, snap);
-    L.push("## Запись", "", `Выходы ${outs.join(" и ")} 1…${tracks.length} — прямо со входов каналов (до обработки):`, "");
-    tracks.forEach((t, k) => L.push(`- ${k + 1}: ${t.grp}${t.in} — ${t.label}`));
-    if (scene.record.card && tracks.length > 32) L.push("", `- ${tracks.length} дорожек: одна SD-карта WING-LIVE пишет 32, нужны обе карты.`);
+    L.push("## Запись", "", `Выходы ${outs.join(" и ")} 1…${tracks.at(-1)?.out ?? 0} — прямо со входов каналов (до обработки):`, "");
+    tracks.forEach((t) => L.push(`- ${t.out}: ${t.grp}${t.in} — ${t.label}`));
+    L.push("", "ALT-вход каждого канала = его дорожка на карте WING-LIVE (CRD), input select GLOBAL: общий переключатель MAIN/ALT включает воспроизведение с карты.");
+    if (scene.record.card && (tracks.at(-1)?.out ?? 0) > 32) L.push("", `- ${tracks.at(-1)?.out} дорожек: одна SD-карта WING-LIVE пишет 32, нужны обе карты.`);
     L.push("");
   }
   L.push("## Страницы", "");

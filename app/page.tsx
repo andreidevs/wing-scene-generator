@@ -353,6 +353,7 @@ export default function Home() {
                     </TableHead>
                   ))}
                   <TableHead>DCA</TableHead>
+                  <TableHead title="Mute groups (#M), задаются в запросе">Mute</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -445,6 +446,7 @@ export default function Home() {
                         </SelectContent>
                       </Select>
                     </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">{c.muteGroups.map((m) => `M${m}`).join(" ") || "—"}</TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
@@ -470,6 +472,7 @@ export default function Home() {
             <CardDescription>
               Шины: {sendCols.map((b) => `Bus ${b.bus} ${b.name}${b.fx ? ` (FX${b.fx.slot})` : ""}`).join(" · ") || "—"}.
               {scene.mains.length > 0 && <> Main: {scene.mains.map((m) => `${m.main} ${m.name}`).join(", ")}.</>}
+              {scene.muteGroups.length > 0 && <> Mute groups: {scene.muteGroups.map((g) => `${g.group}${g.name ? ` ${g.name}` : ""}`).join(", ")}.</>}
               {scene.matrices.length > 0 && <> Матрицы: {scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}.</>}
               {" "}Страницы: стандартные
               {scene.pages.map((pg, k) => ` · USER ${k + 1}: ${pg.sources.join(", ")}${pg.buses ? " + шины" : ""}${pg.dca ? " + DCA" : ""}`).join("")}.

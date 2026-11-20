@@ -33,6 +33,8 @@ test("stereo channels sit on ST input pairs (odd/even), inputs follow channel or
   for (const k of [11, 12, 15, 16, 17, 18]) assert.equal(mode(k), "ST", `LCL ${k} stereo`);
   for (const k of [1, 9, 10, 13, 14, 19, 21]) assert.equal(mode(k), "M", `LCL ${k} mono`);
   assert.equal(ae.ch["18"].in.conn.in, 18, "channels after the scene keep their baseline input");
+  for (let n = 1; n <= 17; n++) assert.equal(ae.ch[String(n)].in.set.srcauto, true, `CH ${n} input select GLOBAL`);
+  assert.equal(ae.ch["18"].in.set.srcauto, false);
 });
 
 test("mains: Main1 Tops, Main2 Subs; every channel goes to Main 1 only (or via its group)", () => {
@@ -95,13 +97,17 @@ test("Vocal Reverb and Delay: post-fader sends from the vocals, returns into Mai
   assert.equal(ae.fx[String(ae.bus[String(dly)].preins.ins.slice(2))].mdl, "ST-DL");
 });
 
-test("recording: every channel's input on USB 1… and on the WING-LIVE card CRD 1…, stereo = 2 tracks", () => {
-  // CH1–9 → LCL1–9, E-Drums LCL11/12, Ac LCL13/14, Keys 15/16, Gtr 17/18, reserved 19/20, TB 21.
-  const want = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+test("recording: track k = LCL k on USB and CRD (stereo pairs on odd tracks); ALT input = the card track", () => {
+  // CH1–9 → LCL1–9, E-Drums LCL11/12, Ac LCL13/14, Keys 15/16, Gtr 17/18, reserved 19/20, TB 21; track 10 empty.
+  const used = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
   for (const out of ["USB", "CRD"]) {
-    want.forEach((inp, k) => assert.deepEqual(ae.io.out[out][String(k + 1)], { grp: "LCL", in: inp }, `${out} ${k + 1}`));
-    assert.equal(ae.io.out[out][String(want.length + 1)].grp, "OFF", `${out} after the last track stays off`);
+    for (const k of used) assert.deepEqual(ae.io.out[out][String(k)], { grp: "LCL", in: k }, `${out} ${k}`);
+    for (const k of [10, 22]) assert.equal(ae.io.out[out][String(k)].grp, "OFF", `${out} ${k} stays off`);
   }
+  const alt = (n: number) => `${ae.ch[String(n)].in.conn.altgrp}${ae.ch[String(n)].in.conn.altin}`;
+  assert.deepEqual([1, 9, 10, 11, 13, 14, 15, 17].map(alt), ["CRD1", "CRD9", "CRD11", "CRD13", "CRD15", "CRD17", "CRD19", "CRD21"]);
+  for (const k of [11, 12, 15, 16, 17, 18]) assert.equal(ae.io.in.CRD[String(k)].mode, "ST", `CRD in ${k} stereo`);
+  assert.equal(ae.io.in.CRD["13"].mode, "M");
 });
 
 test("console: the request picks WING Rack; on a full WING (8 local inputs) the rest goes to AES50 A", () => {
@@ -111,6 +117,15 @@ test("console: the request picks WING Rack; on a full WING (8 local inputs) the 
   assert.deepEqual([1, 8, 9, 10, 11, 13, 14, 17].map(conn), ["LCL1", "LCL8", "A1", "A3", "A5", "A7", "A9", "A13"]);
   assert.deepEqual([3, 4].map((k) => full.io.in.A[String(k)].mode), ["ST", "ST"], "E-Drums on A3/4");
   assert.equal(full.io.in.A["2"].mode, "M", "A2 left free before the pair");
+});
+
+test("mute groups: 1 = vocals without Speaker, 2 = all instruments; talkback in none", () => {
+  const tags = (n: number) => ae.ch[String(n)].tags.split(",").filter((t: string) => t.startsWith("#M"));
+  for (let ch = 1; ch <= 7; ch++) assert.deepEqual(tags(ch), ["#M1"], `Mic${ch}`);
+  assert.deepEqual(tags(8), [], "Speaker");
+  for (let ch = 9; ch <= 14; ch++) assert.deepEqual(tags(ch), ["#M2"], `CH ${ch}`);
+  assert.deepEqual(tags(17), [], "talkback");
+  assert.match(ae.ch["1"].tags, /^#D\d+,#M1$/, "DCA tag kept next to the mute group");
 });
 
 test("matrix Stream fed from Main1", () => {

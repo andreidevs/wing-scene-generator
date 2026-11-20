@@ -347,6 +347,7 @@ export const USER_TEST_TEXT = `Сцена под WING Rack
 Группа инстурментов так же идут все сначала сюда потом в мастер в Main1
 Vocal Reverb  и Delay постфедер для вокалов
 Матрица стрим
+Mute группы: 1 — все вокалы кроме спикера, 2 — все инструменты
 Подготовить выходы всех каналов на USB для записи
 Подготовить выходы всех каналов для записи на флешку во встроенном рекордере`;
 
@@ -380,6 +381,10 @@ export const USER_TEST_EXPECT: EvalCase["expect"] = {
   groups: [
     { name: "Vocal Group", members: ["vocal"], except: ["Speaker"] },
     { name: "Instr Group", members: ["bass", "sampler", "ac_guitar", "keys", "e_guitar"] },
+  ],
+  muteGroups: [
+    { group: 1, members: ["vocal"], except: ["Speaker"] },
+    { group: 2, members: ["bass", "sampler", "ac_guitar", "keys", "e_guitar"] },
   ],
   mains: [
     { main: 1, name: "Tops" },

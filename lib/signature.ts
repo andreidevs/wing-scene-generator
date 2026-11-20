@@ -51,10 +51,11 @@ export function signature(intent: Intent): Sig {
     mains: JSON.stringify(sc.mains),
     matrices: JSON.stringify(sc.matrices),
     record: JSON.stringify(sc.record),
+    muteGroups: uniq([...sc.muteGroups.map((g) => `M${g.group}=${g.name ?? ""}`), ...ch.flatMap((c) => c.muteGroups.map((m) => `${c.label}:M${m}`))]),
   };
 }
 
-export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages", "layout", "buses", "routing", "mains", "matrices", "record"];
+export const FIELDS = ["channels", "mixes", "monitorSends", "fx", "fxSends", "stream", "levels", "open", "processing", "pages", "layout", "buses", "routing", "mains", "matrices", "record", "muteGroups"];
 
 export function score(c: EvalCase, got: Intent | null) {
   const want = signature(IntentSchema.parse({ monitors: [], fx: [], stream: false, ...c.expect }));

@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { FX_KINDS, IntentSchema, LEVEL_TARGETS, MONITOR_MIXES, SOURCE_KINDS, type Intent } from "./intent";
 import { parseRequest, recordIn } from "./parse";
-import { expand } from "./scene";
+import { expand, resolveRef } from "./scene";
 import { sigKey } from "./signature";
 
 // Chosen by `npm run eval` over 51 scenes and 10 models (2026-11): xiaomi/mimo-v2.6-flash was the most
@@ -112,6 +112,8 @@ record.usb true — "выходы всех каналов на USB для зап
   Нумерованные вокальные миксы — у каждого свой микрофон по номеру: InEarVocal1 → own ["Mic1"], InEarVocal2 → ["Mic2"] (имена каналов из channels), а не все вокалы.
   Если миксов больше, чем перечислено имён ("10 миксов" и 8 имён) — добавь недостающие по образцу имён: InEar9, InEar10.
 - groups — подгруппы: name латиницей, members — kinds участников, except — исключения ("кроме speaker" → ["Speaker"]).
+- muteGroups — mute-группы пульта (это НЕ groups): group — номер из запроса, members/except как у groups,
+  "все инструменты" → перечисли kinds инструментов из channels. name — только если задано в запросе.
 - mains — имена мейнов: [{main:1,name:"Tops"},{main:2,name:"Subs"}].
 - "матрица стрим" → stream true, streamVia "matrix"; обычный стрим → streamVia "bus".
 - Имена шин, групп и мейнов — латиницей, коротко (≤16): "Группа вокала" → "Vocal Group", "Группа инструментов" → "Instr Group",
@@ -230,7 +232,19 @@ export function repair(text: string, intent: Intent): Intent {
   }
   // Numbered vocal mixes ("InEarVocal2") that got "all vocals" as their own channel → the N-th vocal channel.
   if (out.channels.length) {
-    const vocals = expand(out).channels.filter((c) => c.kind === "vocal");
+    const channels = expand(out).channels;
+    // An `own` that names no channel ("Acoustic", "Аккустика") → the source kind the parser's vocabulary reads in it.
+    for (const m of out.mixes) {
+      m.own = m.own.flatMap((ref) => {
+        if (ref === "all" || resolveRef(ref, channels).length) return [ref];
+        try {
+          return parseRequest(ref).intent.sources.map((s) => s.kind).filter((k) => channels.some((c) => c.kind === k));
+        } catch {
+          return [ref];
+        }
+      });
+    }
+    const vocals = channels.filter((c) => c.kind === "vocal");
     for (const m of out.mixes) {
       const n = /(?:vocal|vox|вокал)\D*(\d+)$/i.exec(m.name)?.[1];
       if (n && vocals[Number(n) - 1] && m.own.length === 1 && m.own[0] === "vocal") m.own = [vocals[Number(n) - 1].label];
