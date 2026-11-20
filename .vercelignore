@@ -1,0 +1,7 @@
+# Never upload local secrets or build leftovers from the CLI.
+.env*
+!.env.example
+.next
+node_modules
+out
+examples
