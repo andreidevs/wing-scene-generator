@@ -128,6 +128,22 @@ test("mute groups: 1 = vocals without Speaker, 2 = all instruments; talkback in 
   assert.match(ae.ch["1"].tags, /^#D\d+,#M1$/, "DCA tag kept next to the mute group");
 });
 
+test("DCA: 1 Vocal (Mic1–7), 2 Instr (all instruments), 3 FX (reverb + delay returns); Speaker and TB in none", () => {
+  assert.deepEqual([1, 2, 3].map((n) => ae.dca[String(n)].name), ["Vocal", "Instr", "FX"]);
+  const dca = (tags: string) => tags.split(",").filter((t) => t.startsWith("#D"));
+  for (let ch = 1; ch <= 7; ch++) assert.deepEqual(dca(ae.ch[String(ch)].tags), ["#D1"], `Mic${ch}`);
+  for (let ch = 9; ch <= 14; ch++) assert.deepEqual(dca(ae.ch[String(ch)].tags), ["#D2"], `CH ${ch}`);
+  for (const ch of [8, 17]) assert.deepEqual(dca(ae.ch[String(ch)].tags), [], `CH ${ch} in no DCA`);
+  for (const b of [bus("Vocal Reverb"), bus("Delay")]) assert.deepEqual(dca(ae.bus[String(b)].tags), ["#D3"]);
+  assert.equal(ae.dca["4"].name, "", "no preset DCAs on top");
+});
+
+test("talkback: in every in-ear mix, never in a group, Main, DCA or mute group", () => {
+  for (let b = 1; b <= 10; b++) assert.deepEqual([send(17, b).on, send(17, b).mode, send(17, b).lvl], [true, "PRE", -18], `TB → Bus ${b}`);
+  for (const g of [bus("Vocal Group"), bus("Instr Group"), bus("Vocal Reverb"), bus("Delay")]) assert.equal(send(17, g).on, false);
+  assert.deepEqual([ae.ch["17"].main["1"].on, ae.ch["17"].main["2"].on, ae.ch["17"].tags], [false, false, ""]);
+});
+
 test("matrix Stream fed from Main1", () => {
   assert.equal(ae.mtx["1"].name, "Stream");
   assert.deepEqual([ae.main["1"].send.MX1.on, ae.main["1"].send.MX1.lvl], [true, 0]);

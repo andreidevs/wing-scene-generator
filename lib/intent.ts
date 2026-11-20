@@ -56,6 +56,12 @@ export const IntentSchema = z
     .default([]),
   // Subgroups: members go to the group bus (GRP send) instead of Main 1; the group goes to Main 1.
   groups: z.array(z.object({ name: Name, members: z.array(Ref).min(1), except: z.array(Ref).default([]) })).max(4).default([]),
+  // Explicit DCAs ("DCA: Вокал, Инструменты, FX"), replacing the per-preset ones. members: kinds, channel
+  // labels, bus names or "fx" (all FX return buses); name ≤ 8 chars (WING limit).
+  dcas: z
+    .array(z.object({ name: z.string().min(1).max(8), members: z.array(Ref).min(1), except: z.array(Ref).default([]) }))
+    .max(16)
+    .default([]),
   // Mute groups (WING has 8): "mute group 1 — все вокалы кроме спикера". group = its number, else the list order.
   muteGroups: z
     .array(z.object({ group: z.number().int().min(1).max(8).optional(), name: Name.optional(), members: z.array(Ref).min(1), except: z.array(Ref).default([]) }))

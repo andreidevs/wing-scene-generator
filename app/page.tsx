@@ -199,6 +199,7 @@ export default function Home() {
   const stale = build !== null && build.scene !== scene;
   // Send columns: every bus the scene creates (in-ear/monitor mixes, groups, FX, stream), in bus order.
   const sendCols: BusDef[] = scene?.buses ?? [];
+  const dcaNames: string[] = scene?.dcas.length ? scene.dcas.map((d) => d.name) : [...DCA_GROUPS]; // explicit DCAs, else presets
   const conn = scene && baseline ? inputLabels(scene, baseline.snap) : (baseline?.conn ?? {});
   const outName = baseline ? `${baseline.name.replace(/\.snap$/i, "")}_generated_${new Date().toISOString().slice(0, 10)}` : "scene";
 
@@ -435,14 +436,14 @@ export default function Home() {
                     })}
                     <TableCell>
                       <Select
-                        items={{ [NO_DCA]: "—", ...Object.fromEntries(DCA_GROUPS.map((g) => [g, g])) }}
+                        items={{ [NO_DCA]: "—", ...Object.fromEntries(dcaNames.map((g) => [g, g])) }}
                         value={c.dca ?? NO_DCA}
                         onValueChange={(v) => update(c.ch, (d) => editField(d, "dca", v === NO_DCA || !v ? null : (v as ChannelDraft["dca"])))}
                       >
                         <SelectTrigger size="sm" className={cn("w-28", edited(c, "dca"))}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value={NO_DCA}>—</SelectItem>
-                          {DCA_GROUPS.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                          {dcaNames.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </TableCell>
@@ -472,6 +473,7 @@ export default function Home() {
             <CardDescription>
               Шины: {sendCols.map((b) => `Bus ${b.bus} ${b.name}${b.fx ? ` (FX${b.fx.slot})` : ""}`).join(" · ") || "—"}.
               {scene.mains.length > 0 && <> Main: {scene.mains.map((m) => `${m.main} ${m.name}`).join(", ")}.</>}
+              {scene.dcas.length > 0 && <> DCA: {scene.dcas.map((d) => `${d.dca} ${d.name}`).join(", ")}.</>}
               {scene.muteGroups.length > 0 && <> Mute groups: {scene.muteGroups.map((g) => `${g.group}${g.name ? ` ${g.name}` : ""}`).join(", ")}.</>}
               {scene.matrices.length > 0 && <> Матрицы: {scene.matrices.map((m) => `MX${m.mtx} ${m.name} ← Main ${m.from}`).join(", ")}.</>}
               {" "}Страницы: стандартные

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { IntentSchema, SOURCE_KINDS, SourceKind, type Intent } from "./intent";
 import {
-  BUS_LAYOUT, CHANNEL_PRESETS, COLORS, DCA_GROUPS, DEFAULT_LEVEL_DB, DRUM_KINDS, DRUM_KIT, FX_ROLE, FX_ROLES, IEM_ICON, LAYOUT_ORDER,
+  BUS_LAYOUT, CHANNEL_PRESETS, COLORS, DCA_GROUPS, DCA_COLORS, DCA_ICONS, DEFAULT_LEVEL_DB, DRUM_KINDS, DRUM_KIT, FX_ROLE, FX_ROLES, IEM_ICON, LAYOUT_ORDER,
   MAX_CHANNELS, MONITOR_ROLE, MONITOR_ROLES,
   type BusRole, type ChannelPreset, type ColorId, type ConsoleModel, type DcaGroup, type MonitorRole,
 } from "./presets";
@@ -29,7 +29,7 @@ export const ChannelDraftSchema = z.object({
   groups: z.array(z.string()).default([]), // subgroup bus ids (GRP send); a grouped channel skips Main 1
   muteGroups: z.array(z.number().int().min(1).max(8)).default([]), // WING mute groups (#M tags)
   toMain: z.boolean().default(true), // direct assignment to Main 1
-  dca: z.enum(DCA_GROUPS).nullable(),
+  dca: z.string().min(1).max(8).nullable(), // DCA name: a preset group ("Vocals") or one of scene.dcas
   edited: z.array(z.enum(EDITABLE)), // fields the user changed by hand; kind changes keep them
 });
 export type ChannelDraft = z.infer<typeof ChannelDraftSchema>;
@@ -57,6 +57,7 @@ const BusDefSchema = z.object({
   iem: z.boolean(),
   fader: Db,
   icon: z.number().int().min(0).max(999).optional(),
+  dca: z.string().min(1).max(8).optional(), // e.g. FX returns in an "FX" DCA
   fx: z.object({ slot: z.number().int().min(1).max(8), template: z.enum(["vocal_hall", "drum_room", "vocal_delay"]) }).optional(),
 });
 export type BusDef = z.infer<typeof BusDefSchema>;
@@ -79,6 +80,8 @@ export const SceneSchema = z.object({
   buses: z.array(BusDefSchema).max(16).default([]),
   mains: z.array(z.object({ main: z.number().int().min(1).max(4), name: z.string().min(1).max(16) })).default([]),
   matrices: z.array(z.object({ mtx: z.number().int().min(1).max(8), name: z.string().min(1).max(16), from: z.number().int().min(1).max(4) })).default([]),
+  // Explicit DCAs; empty = preset numbering (DCA n = DCA_GROUPS[n-1], see dcaTable).
+  dcas: z.array(z.object({ dca: z.number().int().min(1).max(16), name: z.string().min(1).max(8), color: z.enum(COLORS), icon: z.number().int().optional() })).default([]),
   muteGroups: z.array(z.object({ group: z.number().int().min(1).max(8), name: z.string().min(1).max(16).optional() })).default([]),
   record: z.object({ usb: z.boolean(), card: z.boolean() }).default({ usb: false, card: false }),
   console: z.enum(["rack", "compact", "wing"]).default("rack"), // decides how many local inputs there are
@@ -234,6 +237,13 @@ export function consoleIn(text: string): ConsoleModel | null {
   return null;
 }
 
+// The DCAs a build writes: the scene's explicit ones, else the preset groups its channels use (fixed numbers).
+export function dcaTable(scene: Pick<Scene, "dcas" | "channels">): Scene["dcas"] {
+  if (scene.dcas.length) return scene.dcas;
+  const used = new Set(scene.channels.map((c) => c.dca));
+  return DCA_GROUPS.flatMap((g, k) => (used.has(g) ? [{ dca: k + 1, name: g, color: DCA_COLORS[g], icon: DCA_ICONS[g] }] : []));
+}
+
 // ---------------------------------------------------------------- expand
 
 export function expand(intent: Intent, text = ""): Scene {
@@ -325,6 +335,18 @@ export function expand(intent: Intent, text = ""): Scene {
   if (mixes.stream) drafts.push(roleBus("stream", false));
   const buses = allocate(drafts);
 
+  // Explicit DCAs replace the preset ones: members by kind/label, buses by name or "fx".
+  const dcas = intent.dcas.map((d, k) => {
+    if (k === 0) for (const c of channels) c.dca = null;
+    const except = new Set(d.except.flatMap((r) => resolveRef(r, channels)));
+    const members = d.members.flatMap((r) => resolveRef(r, channels)).filter((c) => !except.has(c));
+    for (const c of members) c.dca ??= d.name;
+    const lower = d.members.map((r) => r.toLowerCase());
+    for (const b of buses) if (!b.dca && ((lower.includes("fx") && b.kind === "fx") || lower.includes(b.name.toLowerCase()))) b.dca = d.name;
+    const preset = members[0] && CHANNEL_PRESETS[members[0].kind].dca;
+    return { dca: k + 1, name: d.name, color: (members[0]?.color ?? "grayblue") as ColorId, icon: preset ? DCA_ICONS[preset] : undefined };
+  });
+
   // Explicit levels from the request override the -18 dB default, in the order given.
   for (const l of intent.levels) {
     const kinds = new Set(l.sources.flatMap((k) => (k === "all" ? kinds_all(channels) : expandContains([k]))));
@@ -353,7 +375,7 @@ export function expand(intent: Intent, text = ""): Scene {
     sources: p.sources.flatMap((k) => (k === "all" ? ["all" as const] : expandContains([k]))),
   }));
   const matrices = intent.stream && intent.streamVia === "matrix" ? [{ mtx: 1, name: "Stream", from: 1 }] : [];
-  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, muteGroups, record: intent.record, console: consoleIn(text) ?? "rack", pages };
+  return { version: 1, text, intent, mixes, channels, buses, mains: intent.mains, matrices, dcas, muteGroups, record: intent.record, console: consoleIn(text) ?? "rack", pages };
 }
 
 const kinds_all = (channels: ChannelDraft[]) => channels.map((c) => c.kind);

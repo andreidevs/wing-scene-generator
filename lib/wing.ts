@@ -3,10 +3,10 @@ import { FX_TEMPLATES } from "./fx-templates";
 import { layerPlan, pageStrips, type Layers } from "./layers";
 import { cloneNode, fromValue, getNode, parseOrdered, replaceNode, serialize, toValue } from "./ordered-json";
 import {
-  CHANNEL_PRESETS, COLORS, CONSOLES, DCA_COLORS, DCA_GROUPS, DCA_ICONS, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
+  CHANNEL_PRESETS, COLORS, CONSOLES, TOM_ICONS, DCA_LEVEL_DB, DEFAULT_LEVEL_DB,
   type ChannelPreset, type ColorId,
 } from "./presets";
-import { sendLevelOf, type Scene } from "./scene";
+import { dcaTable, sendLevelOf, type Scene } from "./scene";
 
 // WING palette, indexes 1..12 (WING Remote Protocols, Appendix "WING Colors"):
 // 1 gray blue, 2 medium blue, 3 dark blue, 4 turquoise, 5 green, 6 olive green,
@@ -73,6 +73,7 @@ const RULES: { tpl: string; schema: z.ZodType; kind: Kind }[] = [
   { tpl: "ch/{ch}/send/{bus}/mode", schema: z.enum(["PRE", "POST", "GRP"]), kind: "Посылы" },
   { tpl: "ch/{ch}/tags", schema: z.string().max(80).regex(/^(#[A-Za-z]\d{1,2}(,#[A-Za-z]\d{1,2})*)?$/), kind: "DCA" },
   { tpl: "bus/{bus}/name", schema: z.string().min(1).max(16), kind: "Шины" },
+  { tpl: "bus/{bus}/tags", schema: z.string().max(80).regex(/^(#[A-Za-z]\d{1,2}(,#[A-Za-z]\d{1,2})*)?$/), kind: "DCA" },
   { tpl: "bus/{bus}/col", schema: col, kind: "Шины" },
   { tpl: "bus/{bus}/icon", schema: icon, kind: "Иконки" },
   { tpl: "bus/{bus}/busmono", schema: z.boolean(), kind: "Шины" },
@@ -127,7 +128,6 @@ export function allowedPaths(): string[] {
 export type Patch = { op: "set"; path: string; value: string | number | boolean | object };
 
 // Role ids among the scene's buses (for callers that think in roles: reports, the baseline validator).
-const dcaNumber = (g: string) => DCA_GROUPS.indexOf(g as (typeof DCA_GROUPS)[number]) + 1;
 
 // Replace DCA tags (#D…) and, when the scene defines mute groups, #M… too; keep user tags.
 function withTags(tags: string, dca: number | null, mutes: number[] | null): string {
@@ -136,7 +136,7 @@ function withTags(tags: string, dca: number | null, mutes: number[] | null): str
 }
 
 export type BaselineSnap = {
-  ae_data: { ch: Record<string, { tags: string; in?: { conn: { grp: string; in: number } } }>; io?: { in: Record<string, Record<string, unknown>> } };
+  ae_data: { bus?: Record<string, { tags?: string }>; ch: Record<string, { tags: string; in?: { conn: { grp: string; in: number } } }>; io?: { in: Record<string, Record<string, unknown>> } };
   ce_data?: { layer?: Layers };
 };
 
@@ -294,7 +294,8 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
     set(`main/${mx.from}/send/MX${mx.mtx}/lvl`, 0);
   }
 
-  const groups = new Set<string>();
+  const dcas = dcaTable(scene);
+  const dcaNum = new Map(dcas.map((d) => [d.name, d.dca]));
   let tomIndex = 0;
   for (const c of scene.channels) {
     const ch = `ch/${c.ch}`;
@@ -320,18 +321,16 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
         set(`${ch}/send/${b.bus}/mode`, b.mode);
       }
     }
-    if (c.dca) groups.add(c.dca);
-    set(`${ch}/tags`, withTags(ae.ch[String(c.ch)]?.tags ?? "", c.dca ? dcaNumber(c.dca) : null, scene.muteGroups.length ? [...c.muteGroups].sort() : null));
+    set(`${ch}/tags`, withTags(ae.ch[String(c.ch)]?.tags ?? "", (c.dca && dcaNum.get(c.dca)) || null, scene.muteGroups.length ? [...c.muteGroups].sort() : null));
   }
 
-  for (const g of DCA_GROUPS.filter((g) => groups.has(g))) {
-    const n = dcaNumber(g);
-    set(`dca/${n}/name`, g);
-    set(`dca/${n}/col`, WING_COLOR[DCA_COLORS[g]]);
-    const icon = DCA_ICONS[g];
-    if (icon !== undefined) set(`dca/${n}/icon`, icon);
-    set(`dca/${n}/fdr`, DCA_LEVEL_DB);
+  for (const d of dcas) {
+    set(`dca/${d.dca}/name`, d.name);
+    set(`dca/${d.dca}/col`, WING_COLOR[d.color]);
+    if (d.icon !== undefined) set(`dca/${d.dca}/icon`, d.icon);
+    set(`dca/${d.dca}/fdr`, DCA_LEVEL_DB);
   }
+  for (const b of buses) if (b.dca && dcaNum.get(b.dca)) set(`bus/${b.bus}/tags`, withTags(ae.bus?.[String(b.bus)]?.tags ?? "", dcaNum.get(b.dca)!, null));
 
   // Every channel starts muted, including channels outside the scene.
   const inScene = new Set(scene.channels.map((c) => c.ch));
@@ -340,8 +339,7 @@ export function compile(scene: Scene, base: BaselineSnap): Patch[] {
   const layers = base.ce_data?.layer;
   if (layers) {
     const busNums = buses.map((b) => b.bus);
-    const dcas = DCA_GROUPS.filter((g) => groups.has(g)).map(dcaNumber);
-    const user = [0, 1].map((k) => scene.pages[k] && pageStrips(scene.pages[k], scene.channels, busNums, dcas));
+    const user = [0, 1].map((k) => scene.pages[k] && pageStrips(scene.pages[k], scene.channels, busNums, dcas.map((d) => d.dca)));
     for (const { path, value } of layerPlan(layers, user)) set(path, value);
   }
   return p;

@@ -22,6 +22,10 @@ export function buildReport(opts: {
   L.push(`- Console: ${CONSOLES[scene.console].label} (${CONSOLES[scene.console].local} локальных входов, дальше AES50 A)`);
   L.push(`- Buses: ${scene.buses.map((b) => `Bus ${b.bus} ${b.name} (${b.mode})`).join(", ") || "—"}`);
   if (scene.mains.length) L.push(`- Mains: ${scene.mains.map((m) => `Main ${m.main} ${m.name}`).join(", ")}`);
+  if (scene.dcas.length) {
+    const who = (name: string) => [...scene.channels.filter((c) => c.dca === name).map((c) => c.label), ...scene.buses.filter((b) => b.dca === name).map((b) => b.name)].join(", ") || "—";
+    L.push(`- DCA: ${scene.dcas.map((d) => `${d.dca} ${d.name} (${who(d.name)})`).join("; ")}`);
+  }
   if (scene.muteGroups.length) {
     const who = (n: number) => scene.channels.filter((c) => c.muteGroups.includes(n)).map((c) => c.label).join(", ") || "—";
     L.push(`- Mute groups: ${scene.muteGroups.map((g) => `${g.group}${g.name ? ` ${g.name}` : ""} (${who(g.group)})`).join("; ")}`);
